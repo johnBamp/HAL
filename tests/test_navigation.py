@@ -1,4 +1,5 @@
 from navigation import astar_path, compute_visible_cells, select_reachable_target
+from main import _adjacent_cells, _build_blocked_cells, _collect_find_candidates
 
 
 def test_astar_finds_shortest_path_in_empty_grid():
@@ -76,3 +77,65 @@ def test_compute_visible_cells_contains_origin_and_forward_cell():
     )
     assert (2, 2) in visible
     assert (3, 2) in visible
+
+
+def test_find_candidate_filter_respects_outside_los():
+    class Obj:
+        def __init__(self, kind, color_name):
+            self.kind = kind
+            self.color_name = color_name
+
+    objects_by_cell = {
+        (1, 1): Obj("apple", "red"),
+        (2, 2): Obj("apple", "red"),
+        (3, 3): Obj("mushroom", "red"),
+    }
+    visible = {(1, 1), (4, 4)}
+    candidates = _collect_find_candidates(
+        objects_by_cell,
+        target_color="red",
+        target_object="apple",
+        adam_visible=visible,
+        outside_only=True,
+    )
+    assert (1, 1) not in candidates
+    assert (2, 2) in candidates
+
+
+def test_find_candidate_filter_empty_when_only_in_los_match():
+    class Obj:
+        def __init__(self, kind, color_name):
+            self.kind = kind
+            self.color_name = color_name
+
+    objects_by_cell = {(1, 1): Obj("apple", "orange")}
+    visible = {(1, 1)}
+    candidates = _collect_find_candidates(
+        objects_by_cell,
+        target_color="orange",
+        target_object="apple",
+        adam_visible=visible,
+        outside_only=True,
+    )
+    assert candidates == []
+
+
+def test_return_target_selection_reaches_adam_adjacency():
+    adam_cell = (3, 3)
+    eve_cell = (0, 3)
+    objects_by_cell = {(2, 3): object()}
+    blocked = _build_blocked_cells(objects_by_cell, adam_cell, eve_cell)
+    adjacent = [cell for cell in _adjacent_cells(adam_cell) if 0 <= cell[0] < 7 and 0 <= cell[1] < 7]
+    candidates = [cell for cell in adjacent if cell not in blocked]
+
+    target, path = select_reachable_target(
+        start=eve_cell,
+        candidates=candidates,
+        blocked=blocked,
+        width=7,
+        height=7,
+        tie_break="nearest",
+    )
+    assert target in candidates
+    assert path is not None
+    assert path[-1] == target

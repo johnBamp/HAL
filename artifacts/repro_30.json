@@ -1,0 +1,2750 @@
+{
+  "seed": 11,
+  "mode": "holistic",
+  "syntax_order": "color_object",
+  "config": {
+    "word_space_size": 10000,
+    "learning_steps": 30,
+    "noise_scale": 0.045,
+    "min_noise_scale": 0.004,
+    "wta_gain": 0.12,
+    "wta_decay": 0.003,
+    "comm_lr": 0.32,
+    "social_lr": 1.15,
+    "self_penalty_lr": 0.24,
+    "consensus_streak_target": 8
+  },
+  "metrics": {
+    "target_unique": 14,
+    "achieved_unique": 14,
+    "all_phrase_consensus": true,
+    "all_slot_consensus": false
+  },
+  "seen_pairs": [
+    "red:apple",
+    "orange:apple",
+    "yellow:apple",
+    "green:apple",
+    "blue:apple",
+    "indigo:apple",
+    "violet:apple",
+    "red:mushroom",
+    "orange:mushroom",
+    "yellow:mushroom",
+    "green:mushroom",
+    "blue:mushroom",
+    "indigo:mushroom",
+    "violet:mushroom"
+  ],
+  "holdout_pairs": [],
+  "command_tokens": {
+    "come_token": 6389,
+    "leave_token": 2427,
+    "find_token": 3491
+  },
+  "command_training": {
+    "episodes": 1200,
+    "accuracy": 1.0,
+    "accuracy_by_intent": {
+      "come": 1.0,
+      "leave": 1.0,
+      "find": 1.0
+    },
+    "eve_action_q": {
+      "6389": {
+        "approach": 0.9999999999999998,
+        "avoid": -0.998568283174976,
+        "fetch": -0.9952905085328633
+      },
+      "2427": {
+        "approach": -0.9988259922034803,
+        "avoid": 0.9999999999999998,
+        "fetch": -0.9929959972231756
+      },
+      "3491": {
+        "approach": -0.9997073369139945,
+        "avoid": -0.9968333379374973,
+        "fetch": 0.9999999999999998
+      }
+    }
+  },
+  "slot_lexicon": [],
+  "phrase_lexicon": [
+    {
+      "object_type": "apple",
+      "color_name": "red",
+      "concept": "red_apple",
+      "concept_label": "Red Apple",
+      "syntax_order": "color_object",
+      "adam_phrase_ids": "5905",
+      "eve_phrase_ids": "5905",
+      "shared_phrase_ids": "5905",
+      "converged_step": 16,
+      "adam_word": "5905",
+      "eve_word": "5905",
+      "shared_word": "5905"
+    },
+    {
+      "object_type": "apple",
+      "color_name": "orange",
+      "concept": "orange_apple",
+      "concept_label": "Orange Apple",
+      "syntax_order": "color_object",
+      "adam_phrase_ids": "5585",
+      "eve_phrase_ids": "5585",
+      "shared_phrase_ids": "5585",
+      "converged_step": 16,
+      "adam_word": "5585",
+      "eve_word": "5585",
+      "shared_word": "5585"
+    },
+    {
+      "object_type": "apple",
+      "color_name": "yellow",
+      "concept": "yellow_apple",
+      "concept_label": "Yellow Apple",
+      "syntax_order": "color_object",
+      "adam_phrase_ids": "2254",
+      "eve_phrase_ids": "2254",
+      "shared_phrase_ids": "2254",
+      "converged_step": 16,
+      "adam_word": "2254",
+      "eve_word": "2254",
+      "shared_word": "2254"
+    },
+    {
+      "object_type": "apple",
+      "color_name": "green",
+      "concept": "green_apple",
+      "concept_label": "Green Apple",
+      "syntax_order": "color_object",
+      "adam_phrase_ids": "7928",
+      "eve_phrase_ids": "7928",
+      "shared_phrase_ids": "7928",
+      "converged_step": 16,
+      "adam_word": "7928",
+      "eve_word": "7928",
+      "shared_word": "7928"
+    },
+    {
+      "object_type": "apple",
+      "color_name": "blue",
+      "concept": "blue_apple",
+      "concept_label": "Blue Apple",
+      "syntax_order": "color_object",
+      "adam_phrase_ids": "4948",
+      "eve_phrase_ids": "4948",
+      "shared_phrase_ids": "4948",
+      "converged_step": 16,
+      "adam_word": "4948",
+      "eve_word": "4948",
+      "shared_word": "4948"
+    },
+    {
+      "object_type": "apple",
+      "color_name": "indigo",
+      "concept": "indigo_apple",
+      "concept_label": "Indigo Apple",
+      "syntax_order": "color_object",
+      "adam_phrase_ids": "4932",
+      "eve_phrase_ids": "4932",
+      "shared_phrase_ids": "4932",
+      "converged_step": 16,
+      "adam_word": "4932",
+      "eve_word": "4932",
+      "shared_word": "4932"
+    },
+    {
+      "object_type": "apple",
+      "color_name": "violet",
+      "concept": "violet_apple",
+      "concept_label": "Violet Apple",
+      "syntax_order": "color_object",
+      "adam_phrase_ids": "6547",
+      "eve_phrase_ids": "6547",
+      "shared_phrase_ids": "6547",
+      "converged_step": 22,
+      "adam_word": "6547",
+      "eve_word": "6547",
+      "shared_word": "6547"
+    },
+    {
+      "object_type": "mushroom",
+      "color_name": "red",
+      "concept": "red_mushroom",
+      "concept_label": "Red Mushroom",
+      "syntax_order": "color_object",
+      "adam_phrase_ids": "6218",
+      "eve_phrase_ids": "6218",
+      "shared_phrase_ids": "6218",
+      "converged_step": 16,
+      "adam_word": "6218",
+      "eve_word": "6218",
+      "shared_word": "6218"
+    },
+    {
+      "object_type": "mushroom",
+      "color_name": "orange",
+      "concept": "orange_mushroom",
+      "concept_label": "Orange Mushroom",
+      "syntax_order": "color_object",
+      "adam_phrase_ids": "2563",
+      "eve_phrase_ids": "2563",
+      "shared_phrase_ids": "2563",
+      "converged_step": 16,
+      "adam_word": "2563",
+      "eve_word": "2563",
+      "shared_word": "2563"
+    },
+    {
+      "object_type": "mushroom",
+      "color_name": "yellow",
+      "concept": "yellow_mushroom",
+      "concept_label": "Yellow Mushroom",
+      "syntax_order": "color_object",
+      "adam_phrase_ids": "3861",
+      "eve_phrase_ids": "3861",
+      "shared_phrase_ids": "3861",
+      "converged_step": 16,
+      "adam_word": "3861",
+      "eve_word": "3861",
+      "shared_word": "3861"
+    },
+    {
+      "object_type": "mushroom",
+      "color_name": "green",
+      "concept": "green_mushroom",
+      "concept_label": "Green Mushroom",
+      "syntax_order": "color_object",
+      "adam_phrase_ids": "1284",
+      "eve_phrase_ids": "1284",
+      "shared_phrase_ids": "1284",
+      "converged_step": 16,
+      "adam_word": "1284",
+      "eve_word": "1284",
+      "shared_word": "1284"
+    },
+    {
+      "object_type": "mushroom",
+      "color_name": "blue",
+      "concept": "blue_mushroom",
+      "concept_label": "Blue Mushroom",
+      "syntax_order": "color_object",
+      "adam_phrase_ids": "5830",
+      "eve_phrase_ids": "5830",
+      "shared_phrase_ids": "5830",
+      "converged_step": 16,
+      "adam_word": "5830",
+      "eve_word": "5830",
+      "shared_word": "5830"
+    },
+    {
+      "object_type": "mushroom",
+      "color_name": "indigo",
+      "concept": "indigo_mushroom",
+      "concept_label": "Indigo Mushroom",
+      "syntax_order": "color_object",
+      "adam_phrase_ids": "5082",
+      "eve_phrase_ids": "5082",
+      "shared_phrase_ids": "5082",
+      "converged_step": 16,
+      "adam_word": "5082",
+      "eve_word": "5082",
+      "shared_word": "5082"
+    },
+    {
+      "object_type": "mushroom",
+      "color_name": "violet",
+      "concept": "violet_mushroom",
+      "concept_label": "Violet Mushroom",
+      "syntax_order": "color_object",
+      "adam_phrase_ids": "2460",
+      "eve_phrase_ids": "2460",
+      "shared_phrase_ids": "2460",
+      "converged_step": 16,
+      "adam_word": "2460",
+      "eve_word": "2460",
+      "shared_word": "2460"
+    }
+  ],
+  "lexicon": [
+    {
+      "object_type": "apple",
+      "color_name": "red",
+      "concept": "red_apple",
+      "concept_label": "Red Apple",
+      "syntax_order": "color_object",
+      "adam_phrase_ids": "5905",
+      "eve_phrase_ids": "5905",
+      "shared_phrase_ids": "5905",
+      "converged_step": 16,
+      "adam_word": "5905",
+      "eve_word": "5905",
+      "shared_word": "5905"
+    },
+    {
+      "object_type": "apple",
+      "color_name": "orange",
+      "concept": "orange_apple",
+      "concept_label": "Orange Apple",
+      "syntax_order": "color_object",
+      "adam_phrase_ids": "5585",
+      "eve_phrase_ids": "5585",
+      "shared_phrase_ids": "5585",
+      "converged_step": 16,
+      "adam_word": "5585",
+      "eve_word": "5585",
+      "shared_word": "5585"
+    },
+    {
+      "object_type": "apple",
+      "color_name": "yellow",
+      "concept": "yellow_apple",
+      "concept_label": "Yellow Apple",
+      "syntax_order": "color_object",
+      "adam_phrase_ids": "2254",
+      "eve_phrase_ids": "2254",
+      "shared_phrase_ids": "2254",
+      "converged_step": 16,
+      "adam_word": "2254",
+      "eve_word": "2254",
+      "shared_word": "2254"
+    },
+    {
+      "object_type": "apple",
+      "color_name": "green",
+      "concept": "green_apple",
+      "concept_label": "Green Apple",
+      "syntax_order": "color_object",
+      "adam_phrase_ids": "7928",
+      "eve_phrase_ids": "7928",
+      "shared_phrase_ids": "7928",
+      "converged_step": 16,
+      "adam_word": "7928",
+      "eve_word": "7928",
+      "shared_word": "7928"
+    },
+    {
+      "object_type": "apple",
+      "color_name": "blue",
+      "concept": "blue_apple",
+      "concept_label": "Blue Apple",
+      "syntax_order": "color_object",
+      "adam_phrase_ids": "4948",
+      "eve_phrase_ids": "4948",
+      "shared_phrase_ids": "4948",
+      "converged_step": 16,
+      "adam_word": "4948",
+      "eve_word": "4948",
+      "shared_word": "4948"
+    },
+    {
+      "object_type": "apple",
+      "color_name": "indigo",
+      "concept": "indigo_apple",
+      "concept_label": "Indigo Apple",
+      "syntax_order": "color_object",
+      "adam_phrase_ids": "4932",
+      "eve_phrase_ids": "4932",
+      "shared_phrase_ids": "4932",
+      "converged_step": 16,
+      "adam_word": "4932",
+      "eve_word": "4932",
+      "shared_word": "4932"
+    },
+    {
+      "object_type": "apple",
+      "color_name": "violet",
+      "concept": "violet_apple",
+      "concept_label": "Violet Apple",
+      "syntax_order": "color_object",
+      "adam_phrase_ids": "6547",
+      "eve_phrase_ids": "6547",
+      "shared_phrase_ids": "6547",
+      "converged_step": 22,
+      "adam_word": "6547",
+      "eve_word": "6547",
+      "shared_word": "6547"
+    },
+    {
+      "object_type": "mushroom",
+      "color_name": "red",
+      "concept": "red_mushroom",
+      "concept_label": "Red Mushroom",
+      "syntax_order": "color_object",
+      "adam_phrase_ids": "6218",
+      "eve_phrase_ids": "6218",
+      "shared_phrase_ids": "6218",
+      "converged_step": 16,
+      "adam_word": "6218",
+      "eve_word": "6218",
+      "shared_word": "6218"
+    },
+    {
+      "object_type": "mushroom",
+      "color_name": "orange",
+      "concept": "orange_mushroom",
+      "concept_label": "Orange Mushroom",
+      "syntax_order": "color_object",
+      "adam_phrase_ids": "2563",
+      "eve_phrase_ids": "2563",
+      "shared_phrase_ids": "2563",
+      "converged_step": 16,
+      "adam_word": "2563",
+      "eve_word": "2563",
+      "shared_word": "2563"
+    },
+    {
+      "object_type": "mushroom",
+      "color_name": "yellow",
+      "concept": "yellow_mushroom",
+      "concept_label": "Yellow Mushroom",
+      "syntax_order": "color_object",
+      "adam_phrase_ids": "3861",
+      "eve_phrase_ids": "3861",
+      "shared_phrase_ids": "3861",
+      "converged_step": 16,
+      "adam_word": "3861",
+      "eve_word": "3861",
+      "shared_word": "3861"
+    },
+    {
+      "object_type": "mushroom",
+      "color_name": "green",
+      "concept": "green_mushroom",
+      "concept_label": "Green Mushroom",
+      "syntax_order": "color_object",
+      "adam_phrase_ids": "1284",
+      "eve_phrase_ids": "1284",
+      "shared_phrase_ids": "1284",
+      "converged_step": 16,
+      "adam_word": "1284",
+      "eve_word": "1284",
+      "shared_word": "1284"
+    },
+    {
+      "object_type": "mushroom",
+      "color_name": "blue",
+      "concept": "blue_mushroom",
+      "concept_label": "Blue Mushroom",
+      "syntax_order": "color_object",
+      "adam_phrase_ids": "5830",
+      "eve_phrase_ids": "5830",
+      "shared_phrase_ids": "5830",
+      "converged_step": 16,
+      "adam_word": "5830",
+      "eve_word": "5830",
+      "shared_word": "5830"
+    },
+    {
+      "object_type": "mushroom",
+      "color_name": "indigo",
+      "concept": "indigo_mushroom",
+      "concept_label": "Indigo Mushroom",
+      "syntax_order": "color_object",
+      "adam_phrase_ids": "5082",
+      "eve_phrase_ids": "5082",
+      "shared_phrase_ids": "5082",
+      "converged_step": 16,
+      "adam_word": "5082",
+      "eve_word": "5082",
+      "shared_word": "5082"
+    },
+    {
+      "object_type": "mushroom",
+      "color_name": "violet",
+      "concept": "violet_mushroom",
+      "concept_label": "Violet Mushroom",
+      "syntax_order": "color_object",
+      "adam_phrase_ids": "2460",
+      "eve_phrase_ids": "2460",
+      "shared_phrase_ids": "2460",
+      "converged_step": 16,
+      "adam_word": "2460",
+      "eve_word": "2460",
+      "shared_word": "2460"
+    }
+  ],
+  "objects": {
+    "red_apple": {
+      "final_word": "5905",
+      "converged_step": 16,
+      "rows": [
+        {
+          "step": 0,
+          "adam_word": 3969,
+          "eve_word": 7841,
+          "distance": 3872,
+          "reward": 0.22552255225522555,
+          "noise": 0.045,
+          "consensus_streak": 0
+        },
+        {
+          "step": 1,
+          "adam_word": 5905,
+          "eve_word": 5905,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.043448275862068966,
+          "consensus_streak": 1
+        },
+        {
+          "step": 2,
+          "adam_word": 5905,
+          "eve_word": 5905,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.04189655172413793,
+          "consensus_streak": 2
+        },
+        {
+          "step": 3,
+          "adam_word": 5905,
+          "eve_word": 5905,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.040344827586206895,
+          "consensus_streak": 3
+        },
+        {
+          "step": 4,
+          "adam_word": 5905,
+          "eve_word": 5905,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.038793103448275856,
+          "consensus_streak": 4
+        },
+        {
+          "step": 5,
+          "adam_word": 5905,
+          "eve_word": 5905,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.037241379310344824,
+          "consensus_streak": 5
+        },
+        {
+          "step": 6,
+          "adam_word": 5905,
+          "eve_word": 5905,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03568965517241379,
+          "consensus_streak": 6
+        },
+        {
+          "step": 7,
+          "adam_word": 5905,
+          "eve_word": 5905,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03413793103448275,
+          "consensus_streak": 7
+        },
+        {
+          "step": 8,
+          "adam_word": 5905,
+          "eve_word": 5905,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03258620689655172,
+          "consensus_streak": 8
+        },
+        {
+          "step": 9,
+          "adam_word": 5905,
+          "eve_word": 5905,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03103448275862069,
+          "consensus_streak": 9
+        },
+        {
+          "step": 10,
+          "adam_word": 5905,
+          "eve_word": 5905,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.029482758620689654,
+          "consensus_streak": 10
+        },
+        {
+          "step": 11,
+          "adam_word": 5905,
+          "eve_word": 5905,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02793103448275862,
+          "consensus_streak": 11
+        },
+        {
+          "step": 12,
+          "adam_word": 5905,
+          "eve_word": 5905,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02637931034482759,
+          "consensus_streak": 12
+        },
+        {
+          "step": 13,
+          "adam_word": 5905,
+          "eve_word": 5905,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02482758620689655,
+          "consensus_streak": 13
+        },
+        {
+          "step": 14,
+          "adam_word": 5905,
+          "eve_word": 5905,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02327586206896551,
+          "consensus_streak": 14
+        },
+        {
+          "step": 15,
+          "adam_word": 5905,
+          "eve_word": 5905,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02172413793103448,
+          "consensus_streak": 15
+        },
+        {
+          "step": 16,
+          "adam_word": 5905,
+          "eve_word": 5905,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.020172413793103448,
+          "consensus_streak": 16
+        }
+      ]
+    },
+    "orange_apple": {
+      "final_word": "5585",
+      "converged_step": 16,
+      "rows": [
+        {
+          "step": 0,
+          "adam_word": 3483,
+          "eve_word": 7688,
+          "distance": 4205,
+          "reward": 0.15891589158915886,
+          "noise": 0.045,
+          "consensus_streak": 0
+        },
+        {
+          "step": 1,
+          "adam_word": 5585,
+          "eve_word": 5585,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.043448275862068966,
+          "consensus_streak": 1
+        },
+        {
+          "step": 2,
+          "adam_word": 5585,
+          "eve_word": 5585,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.04189655172413793,
+          "consensus_streak": 2
+        },
+        {
+          "step": 3,
+          "adam_word": 5585,
+          "eve_word": 5585,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.040344827586206895,
+          "consensus_streak": 3
+        },
+        {
+          "step": 4,
+          "adam_word": 5585,
+          "eve_word": 5585,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.038793103448275856,
+          "consensus_streak": 4
+        },
+        {
+          "step": 5,
+          "adam_word": 5585,
+          "eve_word": 5585,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.037241379310344824,
+          "consensus_streak": 5
+        },
+        {
+          "step": 6,
+          "adam_word": 5585,
+          "eve_word": 5585,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03568965517241379,
+          "consensus_streak": 6
+        },
+        {
+          "step": 7,
+          "adam_word": 5585,
+          "eve_word": 5585,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03413793103448275,
+          "consensus_streak": 7
+        },
+        {
+          "step": 8,
+          "adam_word": 5585,
+          "eve_word": 5585,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03258620689655172,
+          "consensus_streak": 8
+        },
+        {
+          "step": 9,
+          "adam_word": 5585,
+          "eve_word": 5585,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03103448275862069,
+          "consensus_streak": 9
+        },
+        {
+          "step": 10,
+          "adam_word": 5585,
+          "eve_word": 5585,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.029482758620689654,
+          "consensus_streak": 10
+        },
+        {
+          "step": 11,
+          "adam_word": 5585,
+          "eve_word": 5585,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02793103448275862,
+          "consensus_streak": 11
+        },
+        {
+          "step": 12,
+          "adam_word": 5585,
+          "eve_word": 5585,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02637931034482759,
+          "consensus_streak": 12
+        },
+        {
+          "step": 13,
+          "adam_word": 5585,
+          "eve_word": 5585,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02482758620689655,
+          "consensus_streak": 13
+        },
+        {
+          "step": 14,
+          "adam_word": 5585,
+          "eve_word": 5585,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02327586206896551,
+          "consensus_streak": 14
+        },
+        {
+          "step": 15,
+          "adam_word": 5585,
+          "eve_word": 5585,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02172413793103448,
+          "consensus_streak": 15
+        },
+        {
+          "step": 16,
+          "adam_word": 5585,
+          "eve_word": 5585,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.020172413793103448,
+          "consensus_streak": 16
+        }
+      ]
+    },
+    "yellow_apple": {
+      "final_word": "2254",
+      "converged_step": 16,
+      "rows": [
+        {
+          "step": 0,
+          "adam_word": 1242,
+          "eve_word": 3266,
+          "distance": 2024,
+          "reward": 0.5951595159515952,
+          "noise": 0.045,
+          "consensus_streak": 0
+        },
+        {
+          "step": 1,
+          "adam_word": 2254,
+          "eve_word": 2254,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.043448275862068966,
+          "consensus_streak": 1
+        },
+        {
+          "step": 2,
+          "adam_word": 2254,
+          "eve_word": 2254,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.04189655172413793,
+          "consensus_streak": 2
+        },
+        {
+          "step": 3,
+          "adam_word": 2254,
+          "eve_word": 2254,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.040344827586206895,
+          "consensus_streak": 3
+        },
+        {
+          "step": 4,
+          "adam_word": 2254,
+          "eve_word": 2254,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.038793103448275856,
+          "consensus_streak": 4
+        },
+        {
+          "step": 5,
+          "adam_word": 2254,
+          "eve_word": 2254,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.037241379310344824,
+          "consensus_streak": 5
+        },
+        {
+          "step": 6,
+          "adam_word": 2254,
+          "eve_word": 2254,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03568965517241379,
+          "consensus_streak": 6
+        },
+        {
+          "step": 7,
+          "adam_word": 2254,
+          "eve_word": 2254,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03413793103448275,
+          "consensus_streak": 7
+        },
+        {
+          "step": 8,
+          "adam_word": 2254,
+          "eve_word": 2254,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03258620689655172,
+          "consensus_streak": 8
+        },
+        {
+          "step": 9,
+          "adam_word": 2254,
+          "eve_word": 2254,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03103448275862069,
+          "consensus_streak": 9
+        },
+        {
+          "step": 10,
+          "adam_word": 2254,
+          "eve_word": 2254,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.029482758620689654,
+          "consensus_streak": 10
+        },
+        {
+          "step": 11,
+          "adam_word": 2254,
+          "eve_word": 2254,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02793103448275862,
+          "consensus_streak": 11
+        },
+        {
+          "step": 12,
+          "adam_word": 2254,
+          "eve_word": 2254,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02637931034482759,
+          "consensus_streak": 12
+        },
+        {
+          "step": 13,
+          "adam_word": 2254,
+          "eve_word": 2254,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02482758620689655,
+          "consensus_streak": 13
+        },
+        {
+          "step": 14,
+          "adam_word": 2254,
+          "eve_word": 2254,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02327586206896551,
+          "consensus_streak": 14
+        },
+        {
+          "step": 15,
+          "adam_word": 2254,
+          "eve_word": 2254,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02172413793103448,
+          "consensus_streak": 15
+        },
+        {
+          "step": 16,
+          "adam_word": 2254,
+          "eve_word": 2254,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.020172413793103448,
+          "consensus_streak": 16
+        }
+      ]
+    },
+    "green_apple": {
+      "final_word": "7928",
+      "converged_step": 16,
+      "rows": [
+        {
+          "step": 0,
+          "adam_word": 6187,
+          "eve_word": 9669,
+          "distance": 3482,
+          "reward": 0.3035303530353035,
+          "noise": 0.045,
+          "consensus_streak": 0
+        },
+        {
+          "step": 1,
+          "adam_word": 7928,
+          "eve_word": 7928,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.043448275862068966,
+          "consensus_streak": 1
+        },
+        {
+          "step": 2,
+          "adam_word": 7928,
+          "eve_word": 7928,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.04189655172413793,
+          "consensus_streak": 2
+        },
+        {
+          "step": 3,
+          "adam_word": 7928,
+          "eve_word": 7928,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.040344827586206895,
+          "consensus_streak": 3
+        },
+        {
+          "step": 4,
+          "adam_word": 7928,
+          "eve_word": 7928,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.038793103448275856,
+          "consensus_streak": 4
+        },
+        {
+          "step": 5,
+          "adam_word": 7928,
+          "eve_word": 7928,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.037241379310344824,
+          "consensus_streak": 5
+        },
+        {
+          "step": 6,
+          "adam_word": 7928,
+          "eve_word": 7928,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03568965517241379,
+          "consensus_streak": 6
+        },
+        {
+          "step": 7,
+          "adam_word": 7928,
+          "eve_word": 7928,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03413793103448275,
+          "consensus_streak": 7
+        },
+        {
+          "step": 8,
+          "adam_word": 7928,
+          "eve_word": 7928,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03258620689655172,
+          "consensus_streak": 8
+        },
+        {
+          "step": 9,
+          "adam_word": 7928,
+          "eve_word": 7928,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03103448275862069,
+          "consensus_streak": 9
+        },
+        {
+          "step": 10,
+          "adam_word": 7928,
+          "eve_word": 7928,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.029482758620689654,
+          "consensus_streak": 10
+        },
+        {
+          "step": 11,
+          "adam_word": 7928,
+          "eve_word": 7928,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02793103448275862,
+          "consensus_streak": 11
+        },
+        {
+          "step": 12,
+          "adam_word": 7928,
+          "eve_word": 7928,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02637931034482759,
+          "consensus_streak": 12
+        },
+        {
+          "step": 13,
+          "adam_word": 7928,
+          "eve_word": 7928,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02482758620689655,
+          "consensus_streak": 13
+        },
+        {
+          "step": 14,
+          "adam_word": 7928,
+          "eve_word": 7928,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02327586206896551,
+          "consensus_streak": 14
+        },
+        {
+          "step": 15,
+          "adam_word": 7928,
+          "eve_word": 7928,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02172413793103448,
+          "consensus_streak": 15
+        },
+        {
+          "step": 16,
+          "adam_word": 7928,
+          "eve_word": 7928,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.020172413793103448,
+          "consensus_streak": 16
+        }
+      ]
+    },
+    "blue_apple": {
+      "final_word": "4948",
+      "converged_step": 16,
+      "rows": [
+        {
+          "step": 0,
+          "adam_word": 7205,
+          "eve_word": 2691,
+          "distance": 4514,
+          "reward": 0.09710971097109722,
+          "noise": 0.045,
+          "consensus_streak": 0
+        },
+        {
+          "step": 1,
+          "adam_word": 4948,
+          "eve_word": 4948,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.043448275862068966,
+          "consensus_streak": 1
+        },
+        {
+          "step": 2,
+          "adam_word": 4948,
+          "eve_word": 4948,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.04189655172413793,
+          "consensus_streak": 2
+        },
+        {
+          "step": 3,
+          "adam_word": 4948,
+          "eve_word": 4948,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.040344827586206895,
+          "consensus_streak": 3
+        },
+        {
+          "step": 4,
+          "adam_word": 4948,
+          "eve_word": 4948,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.038793103448275856,
+          "consensus_streak": 4
+        },
+        {
+          "step": 5,
+          "adam_word": 4948,
+          "eve_word": 4948,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.037241379310344824,
+          "consensus_streak": 5
+        },
+        {
+          "step": 6,
+          "adam_word": 4948,
+          "eve_word": 4948,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03568965517241379,
+          "consensus_streak": 6
+        },
+        {
+          "step": 7,
+          "adam_word": 4948,
+          "eve_word": 4948,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03413793103448275,
+          "consensus_streak": 7
+        },
+        {
+          "step": 8,
+          "adam_word": 4948,
+          "eve_word": 4948,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03258620689655172,
+          "consensus_streak": 8
+        },
+        {
+          "step": 9,
+          "adam_word": 4948,
+          "eve_word": 4948,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03103448275862069,
+          "consensus_streak": 9
+        },
+        {
+          "step": 10,
+          "adam_word": 4948,
+          "eve_word": 4948,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.029482758620689654,
+          "consensus_streak": 10
+        },
+        {
+          "step": 11,
+          "adam_word": 4948,
+          "eve_word": 4948,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02793103448275862,
+          "consensus_streak": 11
+        },
+        {
+          "step": 12,
+          "adam_word": 4948,
+          "eve_word": 4948,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02637931034482759,
+          "consensus_streak": 12
+        },
+        {
+          "step": 13,
+          "adam_word": 4948,
+          "eve_word": 4948,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02482758620689655,
+          "consensus_streak": 13
+        },
+        {
+          "step": 14,
+          "adam_word": 4948,
+          "eve_word": 4948,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02327586206896551,
+          "consensus_streak": 14
+        },
+        {
+          "step": 15,
+          "adam_word": 4948,
+          "eve_word": 4948,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02172413793103448,
+          "consensus_streak": 15
+        },
+        {
+          "step": 16,
+          "adam_word": 4948,
+          "eve_word": 4948,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.020172413793103448,
+          "consensus_streak": 16
+        }
+      ]
+    },
+    "indigo_apple": {
+      "final_word": "4932",
+      "converged_step": 16,
+      "rows": [
+        {
+          "step": 0,
+          "adam_word": 9012,
+          "eve_word": 852,
+          "distance": 8160,
+          "reward": -0.6321632163216322,
+          "noise": 0.045,
+          "consensus_streak": 0
+        },
+        {
+          "step": 1,
+          "adam_word": 4932,
+          "eve_word": 4932,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.043448275862068966,
+          "consensus_streak": 1
+        },
+        {
+          "step": 2,
+          "adam_word": 4932,
+          "eve_word": 4932,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.04189655172413793,
+          "consensus_streak": 2
+        },
+        {
+          "step": 3,
+          "adam_word": 4932,
+          "eve_word": 4932,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.040344827586206895,
+          "consensus_streak": 3
+        },
+        {
+          "step": 4,
+          "adam_word": 4932,
+          "eve_word": 4932,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.038793103448275856,
+          "consensus_streak": 4
+        },
+        {
+          "step": 5,
+          "adam_word": 4932,
+          "eve_word": 4932,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.037241379310344824,
+          "consensus_streak": 5
+        },
+        {
+          "step": 6,
+          "adam_word": 4932,
+          "eve_word": 4932,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03568965517241379,
+          "consensus_streak": 6
+        },
+        {
+          "step": 7,
+          "adam_word": 4932,
+          "eve_word": 4932,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03413793103448275,
+          "consensus_streak": 7
+        },
+        {
+          "step": 8,
+          "adam_word": 4932,
+          "eve_word": 4932,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03258620689655172,
+          "consensus_streak": 8
+        },
+        {
+          "step": 9,
+          "adam_word": 4932,
+          "eve_word": 4932,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03103448275862069,
+          "consensus_streak": 9
+        },
+        {
+          "step": 10,
+          "adam_word": 4932,
+          "eve_word": 4932,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.029482758620689654,
+          "consensus_streak": 10
+        },
+        {
+          "step": 11,
+          "adam_word": 4932,
+          "eve_word": 4932,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02793103448275862,
+          "consensus_streak": 11
+        },
+        {
+          "step": 12,
+          "adam_word": 4932,
+          "eve_word": 4932,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02637931034482759,
+          "consensus_streak": 12
+        },
+        {
+          "step": 13,
+          "adam_word": 4932,
+          "eve_word": 4932,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02482758620689655,
+          "consensus_streak": 13
+        },
+        {
+          "step": 14,
+          "adam_word": 4932,
+          "eve_word": 4932,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02327586206896551,
+          "consensus_streak": 14
+        },
+        {
+          "step": 15,
+          "adam_word": 4932,
+          "eve_word": 4932,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02172413793103448,
+          "consensus_streak": 15
+        },
+        {
+          "step": 16,
+          "adam_word": 4932,
+          "eve_word": 4932,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.020172413793103448,
+          "consensus_streak": 16
+        }
+      ]
+    },
+    "violet_apple": {
+      "final_word": "6547",
+      "converged_step": 22,
+      "rows": [
+        {
+          "step": 0,
+          "adam_word": 6571,
+          "eve_word": 6476,
+          "distance": 95,
+          "reward": 0.980998099809981,
+          "noise": 0.045,
+          "consensus_streak": 0
+        },
+        {
+          "step": 1,
+          "adam_word": 6571,
+          "eve_word": 6476,
+          "distance": 95,
+          "reward": 0.980998099809981,
+          "noise": 0.043448275862068966,
+          "consensus_streak": 0
+        },
+        {
+          "step": 2,
+          "adam_word": 6571,
+          "eve_word": 6476,
+          "distance": 95,
+          "reward": 0.980998099809981,
+          "noise": 0.04189655172413793,
+          "consensus_streak": 0
+        },
+        {
+          "step": 3,
+          "adam_word": 6571,
+          "eve_word": 6523,
+          "distance": 48,
+          "reward": 0.9903990399039904,
+          "noise": 0.040344827586206895,
+          "consensus_streak": 0
+        },
+        {
+          "step": 4,
+          "adam_word": 6571,
+          "eve_word": 6523,
+          "distance": 48,
+          "reward": 0.9903990399039904,
+          "noise": 0.038793103448275856,
+          "consensus_streak": 0
+        },
+        {
+          "step": 5,
+          "adam_word": 6571,
+          "eve_word": 6523,
+          "distance": 48,
+          "reward": 0.9903990399039904,
+          "noise": 0.037241379310344824,
+          "consensus_streak": 0
+        },
+        {
+          "step": 6,
+          "adam_word": 6571,
+          "eve_word": 6523,
+          "distance": 48,
+          "reward": 0.9903990399039904,
+          "noise": 0.03568965517241379,
+          "consensus_streak": 0
+        },
+        {
+          "step": 7,
+          "adam_word": 6571,
+          "eve_word": 6523,
+          "distance": 48,
+          "reward": 0.9903990399039904,
+          "noise": 0.03413793103448275,
+          "consensus_streak": 0
+        },
+        {
+          "step": 8,
+          "adam_word": 6571,
+          "eve_word": 6523,
+          "distance": 48,
+          "reward": 0.9903990399039904,
+          "noise": 0.03258620689655172,
+          "consensus_streak": 0
+        },
+        {
+          "step": 9,
+          "adam_word": 6571,
+          "eve_word": 6523,
+          "distance": 48,
+          "reward": 0.9903990399039904,
+          "noise": 0.03103448275862069,
+          "consensus_streak": 0
+        },
+        {
+          "step": 10,
+          "adam_word": 6571,
+          "eve_word": 6523,
+          "distance": 48,
+          "reward": 0.9903990399039904,
+          "noise": 0.029482758620689654,
+          "consensus_streak": 0
+        },
+        {
+          "step": 11,
+          "adam_word": 6571,
+          "eve_word": 6523,
+          "distance": 48,
+          "reward": 0.9903990399039904,
+          "noise": 0.02793103448275862,
+          "consensus_streak": 0
+        },
+        {
+          "step": 12,
+          "adam_word": 6571,
+          "eve_word": 6523,
+          "distance": 48,
+          "reward": 0.9903990399039904,
+          "noise": 0.02637931034482759,
+          "consensus_streak": 0
+        },
+        {
+          "step": 13,
+          "adam_word": 6571,
+          "eve_word": 6523,
+          "distance": 48,
+          "reward": 0.9903990399039904,
+          "noise": 0.02482758620689655,
+          "consensus_streak": 0
+        },
+        {
+          "step": 14,
+          "adam_word": 6571,
+          "eve_word": 6523,
+          "distance": 48,
+          "reward": 0.9903990399039904,
+          "noise": 0.02327586206896551,
+          "consensus_streak": 0
+        },
+        {
+          "step": 15,
+          "adam_word": 6547,
+          "eve_word": 6547,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02172413793103448,
+          "consensus_streak": 1
+        },
+        {
+          "step": 16,
+          "adam_word": 6547,
+          "eve_word": 6547,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.020172413793103448,
+          "consensus_streak": 2
+        },
+        {
+          "step": 17,
+          "adam_word": 6547,
+          "eve_word": 6547,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.018620689655172416,
+          "consensus_streak": 3
+        },
+        {
+          "step": 18,
+          "adam_word": 6547,
+          "eve_word": 6547,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.017068965517241377,
+          "consensus_streak": 4
+        },
+        {
+          "step": 19,
+          "adam_word": 6547,
+          "eve_word": 6547,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.015517241379310345,
+          "consensus_streak": 5
+        },
+        {
+          "step": 20,
+          "adam_word": 6547,
+          "eve_word": 6547,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.013965517241379307,
+          "consensus_streak": 6
+        },
+        {
+          "step": 21,
+          "adam_word": 6547,
+          "eve_word": 6547,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.012413793103448275,
+          "consensus_streak": 7
+        },
+        {
+          "step": 22,
+          "adam_word": 6547,
+          "eve_word": 6547,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.010862068965517243,
+          "consensus_streak": 8
+        }
+      ]
+    },
+    "red_mushroom": {
+      "final_word": "6218",
+      "converged_step": 16,
+      "rows": [
+        {
+          "step": 0,
+          "adam_word": 4726,
+          "eve_word": 7710,
+          "distance": 2984,
+          "reward": 0.40314031403140316,
+          "noise": 0.045,
+          "consensus_streak": 0
+        },
+        {
+          "step": 1,
+          "adam_word": 6218,
+          "eve_word": 6218,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.043448275862068966,
+          "consensus_streak": 1
+        },
+        {
+          "step": 2,
+          "adam_word": 6218,
+          "eve_word": 6218,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.04189655172413793,
+          "consensus_streak": 2
+        },
+        {
+          "step": 3,
+          "adam_word": 6218,
+          "eve_word": 6218,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.040344827586206895,
+          "consensus_streak": 3
+        },
+        {
+          "step": 4,
+          "adam_word": 6218,
+          "eve_word": 6218,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.038793103448275856,
+          "consensus_streak": 4
+        },
+        {
+          "step": 5,
+          "adam_word": 6218,
+          "eve_word": 6218,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.037241379310344824,
+          "consensus_streak": 5
+        },
+        {
+          "step": 6,
+          "adam_word": 6218,
+          "eve_word": 6218,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03568965517241379,
+          "consensus_streak": 6
+        },
+        {
+          "step": 7,
+          "adam_word": 6218,
+          "eve_word": 6218,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03413793103448275,
+          "consensus_streak": 7
+        },
+        {
+          "step": 8,
+          "adam_word": 6218,
+          "eve_word": 6218,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03258620689655172,
+          "consensus_streak": 8
+        },
+        {
+          "step": 9,
+          "adam_word": 6218,
+          "eve_word": 6218,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03103448275862069,
+          "consensus_streak": 9
+        },
+        {
+          "step": 10,
+          "adam_word": 6218,
+          "eve_word": 6218,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.029482758620689654,
+          "consensus_streak": 10
+        },
+        {
+          "step": 11,
+          "adam_word": 6218,
+          "eve_word": 6218,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02793103448275862,
+          "consensus_streak": 11
+        },
+        {
+          "step": 12,
+          "adam_word": 6218,
+          "eve_word": 6218,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02637931034482759,
+          "consensus_streak": 12
+        },
+        {
+          "step": 13,
+          "adam_word": 6218,
+          "eve_word": 6218,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02482758620689655,
+          "consensus_streak": 13
+        },
+        {
+          "step": 14,
+          "adam_word": 6218,
+          "eve_word": 6218,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02327586206896551,
+          "consensus_streak": 14
+        },
+        {
+          "step": 15,
+          "adam_word": 6218,
+          "eve_word": 6218,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02172413793103448,
+          "consensus_streak": 15
+        },
+        {
+          "step": 16,
+          "adam_word": 6218,
+          "eve_word": 6218,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.020172413793103448,
+          "consensus_streak": 16
+        }
+      ]
+    },
+    "orange_mushroom": {
+      "final_word": "2563",
+      "converged_step": 16,
+      "rows": [
+        {
+          "step": 0,
+          "adam_word": 4006,
+          "eve_word": 1120,
+          "distance": 2886,
+          "reward": 0.4227422742274227,
+          "noise": 0.045,
+          "consensus_streak": 0
+        },
+        {
+          "step": 1,
+          "adam_word": 2563,
+          "eve_word": 2563,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.043448275862068966,
+          "consensus_streak": 1
+        },
+        {
+          "step": 2,
+          "adam_word": 2563,
+          "eve_word": 2563,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.04189655172413793,
+          "consensus_streak": 2
+        },
+        {
+          "step": 3,
+          "adam_word": 2563,
+          "eve_word": 2563,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.040344827586206895,
+          "consensus_streak": 3
+        },
+        {
+          "step": 4,
+          "adam_word": 2563,
+          "eve_word": 2563,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.038793103448275856,
+          "consensus_streak": 4
+        },
+        {
+          "step": 5,
+          "adam_word": 2563,
+          "eve_word": 2563,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.037241379310344824,
+          "consensus_streak": 5
+        },
+        {
+          "step": 6,
+          "adam_word": 2563,
+          "eve_word": 2563,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03568965517241379,
+          "consensus_streak": 6
+        },
+        {
+          "step": 7,
+          "adam_word": 2563,
+          "eve_word": 2563,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03413793103448275,
+          "consensus_streak": 7
+        },
+        {
+          "step": 8,
+          "adam_word": 2563,
+          "eve_word": 2563,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03258620689655172,
+          "consensus_streak": 8
+        },
+        {
+          "step": 9,
+          "adam_word": 2563,
+          "eve_word": 2563,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03103448275862069,
+          "consensus_streak": 9
+        },
+        {
+          "step": 10,
+          "adam_word": 2563,
+          "eve_word": 2563,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.029482758620689654,
+          "consensus_streak": 10
+        },
+        {
+          "step": 11,
+          "adam_word": 2563,
+          "eve_word": 2563,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02793103448275862,
+          "consensus_streak": 11
+        },
+        {
+          "step": 12,
+          "adam_word": 2563,
+          "eve_word": 2563,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02637931034482759,
+          "consensus_streak": 12
+        },
+        {
+          "step": 13,
+          "adam_word": 2563,
+          "eve_word": 2563,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02482758620689655,
+          "consensus_streak": 13
+        },
+        {
+          "step": 14,
+          "adam_word": 2563,
+          "eve_word": 2563,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02327586206896551,
+          "consensus_streak": 14
+        },
+        {
+          "step": 15,
+          "adam_word": 2563,
+          "eve_word": 2563,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02172413793103448,
+          "consensus_streak": 15
+        },
+        {
+          "step": 16,
+          "adam_word": 2563,
+          "eve_word": 2563,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.020172413793103448,
+          "consensus_streak": 16
+        }
+      ]
+    },
+    "yellow_mushroom": {
+      "final_word": "3861",
+      "converged_step": 16,
+      "rows": [
+        {
+          "step": 0,
+          "adam_word": 5610,
+          "eve_word": 2112,
+          "distance": 3498,
+          "reward": 0.3003300330033003,
+          "noise": 0.045,
+          "consensus_streak": 0
+        },
+        {
+          "step": 1,
+          "adam_word": 3861,
+          "eve_word": 3861,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.043448275862068966,
+          "consensus_streak": 1
+        },
+        {
+          "step": 2,
+          "adam_word": 3861,
+          "eve_word": 3861,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.04189655172413793,
+          "consensus_streak": 2
+        },
+        {
+          "step": 3,
+          "adam_word": 3861,
+          "eve_word": 3861,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.040344827586206895,
+          "consensus_streak": 3
+        },
+        {
+          "step": 4,
+          "adam_word": 3861,
+          "eve_word": 3861,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.038793103448275856,
+          "consensus_streak": 4
+        },
+        {
+          "step": 5,
+          "adam_word": 3861,
+          "eve_word": 3861,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.037241379310344824,
+          "consensus_streak": 5
+        },
+        {
+          "step": 6,
+          "adam_word": 3861,
+          "eve_word": 3861,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03568965517241379,
+          "consensus_streak": 6
+        },
+        {
+          "step": 7,
+          "adam_word": 3861,
+          "eve_word": 3861,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03413793103448275,
+          "consensus_streak": 7
+        },
+        {
+          "step": 8,
+          "adam_word": 3861,
+          "eve_word": 3861,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03258620689655172,
+          "consensus_streak": 8
+        },
+        {
+          "step": 9,
+          "adam_word": 3861,
+          "eve_word": 3861,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03103448275862069,
+          "consensus_streak": 9
+        },
+        {
+          "step": 10,
+          "adam_word": 3861,
+          "eve_word": 3861,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.029482758620689654,
+          "consensus_streak": 10
+        },
+        {
+          "step": 11,
+          "adam_word": 3861,
+          "eve_word": 3861,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02793103448275862,
+          "consensus_streak": 11
+        },
+        {
+          "step": 12,
+          "adam_word": 3861,
+          "eve_word": 3861,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02637931034482759,
+          "consensus_streak": 12
+        },
+        {
+          "step": 13,
+          "adam_word": 3861,
+          "eve_word": 3861,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02482758620689655,
+          "consensus_streak": 13
+        },
+        {
+          "step": 14,
+          "adam_word": 3861,
+          "eve_word": 3861,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02327586206896551,
+          "consensus_streak": 14
+        },
+        {
+          "step": 15,
+          "adam_word": 3861,
+          "eve_word": 3861,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02172413793103448,
+          "consensus_streak": 15
+        },
+        {
+          "step": 16,
+          "adam_word": 3861,
+          "eve_word": 3861,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.020172413793103448,
+          "consensus_streak": 16
+        }
+      ]
+    },
+    "green_mushroom": {
+      "final_word": "1284",
+      "converged_step": 16,
+      "rows": [
+        {
+          "step": 0,
+          "adam_word": 1944,
+          "eve_word": 625,
+          "distance": 1319,
+          "reward": 0.7361736173617361,
+          "noise": 0.045,
+          "consensus_streak": 0
+        },
+        {
+          "step": 1,
+          "adam_word": 1944,
+          "eve_word": 625,
+          "distance": 1319,
+          "reward": 0.7361736173617361,
+          "noise": 0.043448275862068966,
+          "consensus_streak": 0
+        },
+        {
+          "step": 2,
+          "adam_word": 1284,
+          "eve_word": 1284,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.04189655172413793,
+          "consensus_streak": 1
+        },
+        {
+          "step": 3,
+          "adam_word": 1284,
+          "eve_word": 1284,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.040344827586206895,
+          "consensus_streak": 2
+        },
+        {
+          "step": 4,
+          "adam_word": 1284,
+          "eve_word": 1284,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.038793103448275856,
+          "consensus_streak": 3
+        },
+        {
+          "step": 5,
+          "adam_word": 1284,
+          "eve_word": 1284,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.037241379310344824,
+          "consensus_streak": 4
+        },
+        {
+          "step": 6,
+          "adam_word": 1284,
+          "eve_word": 1284,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03568965517241379,
+          "consensus_streak": 5
+        },
+        {
+          "step": 7,
+          "adam_word": 1284,
+          "eve_word": 1284,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03413793103448275,
+          "consensus_streak": 6
+        },
+        {
+          "step": 8,
+          "adam_word": 1284,
+          "eve_word": 1284,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03258620689655172,
+          "consensus_streak": 7
+        },
+        {
+          "step": 9,
+          "adam_word": 1284,
+          "eve_word": 1284,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03103448275862069,
+          "consensus_streak": 8
+        },
+        {
+          "step": 10,
+          "adam_word": 1284,
+          "eve_word": 1284,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.029482758620689654,
+          "consensus_streak": 9
+        },
+        {
+          "step": 11,
+          "adam_word": 1284,
+          "eve_word": 1284,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02793103448275862,
+          "consensus_streak": 10
+        },
+        {
+          "step": 12,
+          "adam_word": 1284,
+          "eve_word": 1284,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02637931034482759,
+          "consensus_streak": 11
+        },
+        {
+          "step": 13,
+          "adam_word": 1284,
+          "eve_word": 1284,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02482758620689655,
+          "consensus_streak": 12
+        },
+        {
+          "step": 14,
+          "adam_word": 1284,
+          "eve_word": 1284,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02327586206896551,
+          "consensus_streak": 13
+        },
+        {
+          "step": 15,
+          "adam_word": 1284,
+          "eve_word": 1284,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02172413793103448,
+          "consensus_streak": 14
+        },
+        {
+          "step": 16,
+          "adam_word": 1284,
+          "eve_word": 1284,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.020172413793103448,
+          "consensus_streak": 15
+        }
+      ]
+    },
+    "blue_mushroom": {
+      "final_word": "5830",
+      "converged_step": 16,
+      "rows": [
+        {
+          "step": 0,
+          "adam_word": 6296,
+          "eve_word": 5364,
+          "distance": 932,
+          "reward": 0.8135813581358136,
+          "noise": 0.045,
+          "consensus_streak": 0
+        },
+        {
+          "step": 1,
+          "adam_word": 6296,
+          "eve_word": 5364,
+          "distance": 932,
+          "reward": 0.8135813581358136,
+          "noise": 0.043448275862068966,
+          "consensus_streak": 0
+        },
+        {
+          "step": 2,
+          "adam_word": 5830,
+          "eve_word": 5830,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.04189655172413793,
+          "consensus_streak": 1
+        },
+        {
+          "step": 3,
+          "adam_word": 5830,
+          "eve_word": 5830,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.040344827586206895,
+          "consensus_streak": 2
+        },
+        {
+          "step": 4,
+          "adam_word": 5830,
+          "eve_word": 5830,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.038793103448275856,
+          "consensus_streak": 3
+        },
+        {
+          "step": 5,
+          "adam_word": 5830,
+          "eve_word": 5830,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.037241379310344824,
+          "consensus_streak": 4
+        },
+        {
+          "step": 6,
+          "adam_word": 5830,
+          "eve_word": 5830,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03568965517241379,
+          "consensus_streak": 5
+        },
+        {
+          "step": 7,
+          "adam_word": 5830,
+          "eve_word": 5830,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03413793103448275,
+          "consensus_streak": 6
+        },
+        {
+          "step": 8,
+          "adam_word": 5830,
+          "eve_word": 5830,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03258620689655172,
+          "consensus_streak": 7
+        },
+        {
+          "step": 9,
+          "adam_word": 5830,
+          "eve_word": 5830,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03103448275862069,
+          "consensus_streak": 8
+        },
+        {
+          "step": 10,
+          "adam_word": 5830,
+          "eve_word": 5830,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.029482758620689654,
+          "consensus_streak": 9
+        },
+        {
+          "step": 11,
+          "adam_word": 5830,
+          "eve_word": 5830,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02793103448275862,
+          "consensus_streak": 10
+        },
+        {
+          "step": 12,
+          "adam_word": 5830,
+          "eve_word": 5830,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02637931034482759,
+          "consensus_streak": 11
+        },
+        {
+          "step": 13,
+          "adam_word": 5830,
+          "eve_word": 5830,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02482758620689655,
+          "consensus_streak": 12
+        },
+        {
+          "step": 14,
+          "adam_word": 5830,
+          "eve_word": 5830,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02327586206896551,
+          "consensus_streak": 13
+        },
+        {
+          "step": 15,
+          "adam_word": 5830,
+          "eve_word": 5830,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02172413793103448,
+          "consensus_streak": 14
+        },
+        {
+          "step": 16,
+          "adam_word": 5830,
+          "eve_word": 5830,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.020172413793103448,
+          "consensus_streak": 15
+        }
+      ]
+    },
+    "indigo_mushroom": {
+      "final_word": "5082",
+      "converged_step": 16,
+      "rows": [
+        {
+          "step": 0,
+          "adam_word": 9051,
+          "eve_word": 1114,
+          "distance": 7937,
+          "reward": -0.5875587558755875,
+          "noise": 0.045,
+          "consensus_streak": 0
+        },
+        {
+          "step": 1,
+          "adam_word": 5082,
+          "eve_word": 5082,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.043448275862068966,
+          "consensus_streak": 1
+        },
+        {
+          "step": 2,
+          "adam_word": 5082,
+          "eve_word": 5082,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.04189655172413793,
+          "consensus_streak": 2
+        },
+        {
+          "step": 3,
+          "adam_word": 5082,
+          "eve_word": 5082,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.040344827586206895,
+          "consensus_streak": 3
+        },
+        {
+          "step": 4,
+          "adam_word": 5082,
+          "eve_word": 5082,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.038793103448275856,
+          "consensus_streak": 4
+        },
+        {
+          "step": 5,
+          "adam_word": 5082,
+          "eve_word": 5082,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.037241379310344824,
+          "consensus_streak": 5
+        },
+        {
+          "step": 6,
+          "adam_word": 5082,
+          "eve_word": 5082,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03568965517241379,
+          "consensus_streak": 6
+        },
+        {
+          "step": 7,
+          "adam_word": 5082,
+          "eve_word": 5082,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03413793103448275,
+          "consensus_streak": 7
+        },
+        {
+          "step": 8,
+          "adam_word": 5082,
+          "eve_word": 5082,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03258620689655172,
+          "consensus_streak": 8
+        },
+        {
+          "step": 9,
+          "adam_word": 5082,
+          "eve_word": 5082,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03103448275862069,
+          "consensus_streak": 9
+        },
+        {
+          "step": 10,
+          "adam_word": 5082,
+          "eve_word": 5082,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.029482758620689654,
+          "consensus_streak": 10
+        },
+        {
+          "step": 11,
+          "adam_word": 5082,
+          "eve_word": 5082,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02793103448275862,
+          "consensus_streak": 11
+        },
+        {
+          "step": 12,
+          "adam_word": 5082,
+          "eve_word": 5082,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02637931034482759,
+          "consensus_streak": 12
+        },
+        {
+          "step": 13,
+          "adam_word": 5082,
+          "eve_word": 5082,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02482758620689655,
+          "consensus_streak": 13
+        },
+        {
+          "step": 14,
+          "adam_word": 5082,
+          "eve_word": 5082,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02327586206896551,
+          "consensus_streak": 14
+        },
+        {
+          "step": 15,
+          "adam_word": 5082,
+          "eve_word": 5082,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02172413793103448,
+          "consensus_streak": 15
+        },
+        {
+          "step": 16,
+          "adam_word": 5082,
+          "eve_word": 5082,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.020172413793103448,
+          "consensus_streak": 16
+        }
+      ]
+    },
+    "violet_mushroom": {
+      "final_word": "2460",
+      "converged_step": 16,
+      "rows": [
+        {
+          "step": 0,
+          "adam_word": 2314,
+          "eve_word": 2900,
+          "distance": 586,
+          "reward": 0.8827882788278827,
+          "noise": 0.045,
+          "consensus_streak": 0
+        },
+        {
+          "step": 1,
+          "adam_word": 2314,
+          "eve_word": 2900,
+          "distance": 586,
+          "reward": 0.8827882788278827,
+          "noise": 0.043448275862068966,
+          "consensus_streak": 0
+        },
+        {
+          "step": 2,
+          "adam_word": 2314,
+          "eve_word": 2607,
+          "distance": 293,
+          "reward": 0.9413941394139413,
+          "noise": 0.04189655172413793,
+          "consensus_streak": 0
+        },
+        {
+          "step": 3,
+          "adam_word": 2314,
+          "eve_word": 2607,
+          "distance": 293,
+          "reward": 0.9413941394139413,
+          "noise": 0.040344827586206895,
+          "consensus_streak": 0
+        },
+        {
+          "step": 4,
+          "adam_word": 2314,
+          "eve_word": 2607,
+          "distance": 293,
+          "reward": 0.9413941394139413,
+          "noise": 0.038793103448275856,
+          "consensus_streak": 0
+        },
+        {
+          "step": 5,
+          "adam_word": 2314,
+          "eve_word": 2607,
+          "distance": 293,
+          "reward": 0.9413941394139413,
+          "noise": 0.037241379310344824,
+          "consensus_streak": 0
+        },
+        {
+          "step": 6,
+          "adam_word": 2314,
+          "eve_word": 2607,
+          "distance": 293,
+          "reward": 0.9413941394139413,
+          "noise": 0.03568965517241379,
+          "consensus_streak": 0
+        },
+        {
+          "step": 7,
+          "adam_word": 2314,
+          "eve_word": 2607,
+          "distance": 293,
+          "reward": 0.9413941394139413,
+          "noise": 0.03413793103448275,
+          "consensus_streak": 0
+        },
+        {
+          "step": 8,
+          "adam_word": 2314,
+          "eve_word": 2607,
+          "distance": 293,
+          "reward": 0.9413941394139413,
+          "noise": 0.03258620689655172,
+          "consensus_streak": 0
+        },
+        {
+          "step": 9,
+          "adam_word": 2460,
+          "eve_word": 2460,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.03103448275862069,
+          "consensus_streak": 1
+        },
+        {
+          "step": 10,
+          "adam_word": 2460,
+          "eve_word": 2460,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.029482758620689654,
+          "consensus_streak": 2
+        },
+        {
+          "step": 11,
+          "adam_word": 2460,
+          "eve_word": 2460,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02793103448275862,
+          "consensus_streak": 3
+        },
+        {
+          "step": 12,
+          "adam_word": 2460,
+          "eve_word": 2460,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02637931034482759,
+          "consensus_streak": 4
+        },
+        {
+          "step": 13,
+          "adam_word": 2460,
+          "eve_word": 2460,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02482758620689655,
+          "consensus_streak": 5
+        },
+        {
+          "step": 14,
+          "adam_word": 2460,
+          "eve_word": 2460,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02327586206896551,
+          "consensus_streak": 6
+        },
+        {
+          "step": 15,
+          "adam_word": 2460,
+          "eve_word": 2460,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.02172413793103448,
+          "consensus_streak": 7
+        },
+        {
+          "step": 16,
+          "adam_word": 2460,
+          "eve_word": 2460,
+          "distance": 0,
+          "reward": 1.0,
+          "noise": 0.020172413793103448,
+          "consensus_streak": 8
+        }
+      ]
+    }
+  }
+}

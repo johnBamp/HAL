@@ -178,12 +178,19 @@ def test_command_pretraining_reaches_high_accuracy_for_fixed_seed():
         learning_rate=0.18,
         trailing_window=240,
     )
-    come_token, leave_token = initialize_hidden_command_mapping(cfg, rng)
-    result = train_command_grounding(cfg, come_token, leave_token, rng)
+    come_token, leave_token, find_token = initialize_hidden_command_mapping(cfg, rng)
+    result = train_command_grounding(
+        cfg,
+        come_token,
+        leave_token,
+        find_token,
+        seen_pairs=["red:apple", "orange:apple"],
+        rng=rng,
+    )
     assert result.accuracy >= 0.8
 
 
-def test_command_tokens_converge_to_opposite_actions():
+def test_command_tokens_converge_to_expected_actions():
     rng = random.Random(17)
     cfg = CommandTrainingConfig(
         word_space_size=TrainingConfig().word_space_size,
@@ -192,13 +199,50 @@ def test_command_tokens_converge_to_opposite_actions():
         learning_rate=0.18,
         trailing_window=200,
     )
-    come_token, leave_token = initialize_hidden_command_mapping(cfg, rng)
-    result = train_command_grounding(cfg, come_token, leave_token, rng)
+    come_token, leave_token, find_token = initialize_hidden_command_mapping(cfg, rng)
+    result = train_command_grounding(cfg, come_token, leave_token, find_token, rng=rng)
 
     come_row = result.eve_action_q[come_token]
     leave_row = result.eve_action_q[leave_token]
-    come_action = "approach" if come_row["approach"] >= come_row["avoid"] else "avoid"
-    leave_action = "approach" if leave_row["approach"] >= leave_row["avoid"] else "avoid"
+    find_row = result.eve_action_q[find_token]
+    actions = ("approach", "avoid", "fetch")
+    come_action = max(actions, key=lambda action: come_row[action])
+    leave_action = max(actions, key=lambda action: leave_row[action])
+    find_action = max(actions, key=lambda action: find_row[action])
 
     assert come_action == "approach"
     assert leave_action == "avoid"
+    assert find_action == "fetch"
+
+
+def test_find_phrase_heldout_decodes_target_slots():
+    holdout_pairs = [("orange", "mushroom")]
+    adam, _, result = _run_factored(seed=11, holdout_pairs=holdout_pairs)
+    slot_maps = build_slot_id_maps(adam, DEFAULT_COLORS, DEFAULT_OBJECTS)
+
+    find_cfg = CommandTrainingConfig(
+        word_space_size=TrainingConfig().word_space_size,
+        episodes=800,
+        epsilon=0.2,
+        learning_rate=0.18,
+        trailing_window=200,
+    )
+    cmd_rng = random.Random(33)
+    _, _, find_token = initialize_hidden_command_mapping(find_cfg, cmd_rng)
+
+    phrase_tokens = (
+        f"{find_token:04d}",
+        f"{slot_maps['color_label_to_token']['orange']:04d}",
+        f"{slot_maps['object_label_to_token']['mushroom']:04d}",
+    )
+    # For factorized find utterances, the object target is decoded from the color/object slots.
+    decoded = backtrace_factored_phrase(
+        adam,
+        color_token=phrase_tokens[1],
+        object_token=phrase_tokens[2],
+        color_names=DEFAULT_COLORS,
+        object_types=DEFAULT_OBJECTS,
+        seen_pairs=set(result.seen_pairs),
+    )
+    assert decoded.decoded_concept_key == "orange_mushroom"
+    assert decoded.seen_in_training is False

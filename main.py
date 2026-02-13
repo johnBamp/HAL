@@ -339,6 +339,18 @@ def draw_agent(pygame, screen, agent):
     pygame.draw.line(screen, (255, 255, 255), (cx, cy), (ex, ey), 2)
 
 
+def draw_carried_object(pygame, screen, carrier, carried_object, sprite_cache):
+    if carried_object is None:
+        return
+    tile_x, tile_y = cell_to_screen(*carrier.cell)
+    sprite = get_sprite(pygame, sprite_cache, carried_object.kind, carried_object.color_name)
+    size = max(10, int(min(VISUAL_TILE_WIDTH, VISUAL_TILE_HEIGHT) * 0.56))
+    scaled = pygame.transform.scale(sprite, (size, size))
+    offset_x = VISUAL_TILE_WIDTH - size - 2
+    offset_y = 2
+    screen.blit(scaled, (tile_x + offset_x, tile_y + offset_y))
+
+
 def draw_speech_bubble(pygame, screen, small_font, text, anchor_x, anchor_y, fill=(242, 246, 252), fg=(22, 26, 34)):
     if not text:
         return
@@ -364,11 +376,14 @@ def _decode_eve_command_action(command_state, token):
     row = command_state["eve_action_q"].get(token)
     if not row:
         return "approach"
-    return "approach" if row.get("approach", 0.0) >= row.get("avoid", 0.0) else "avoid"
+    ordered_actions = sorted(row.keys())
+    return max(ordered_actions, key=lambda action: row[action])
 
 
-def _build_blocked_cells(objects_by_cell, adam_cell, eve_cell):
+def _build_blocked_cells(objects_by_cell, adam_cell, eve_cell, passable_cells=None):
     blocked = set(objects_by_cell.keys())
+    if passable_cells:
+        blocked -= set(passable_cells)
     blocked.add(adam_cell)
     blocked.discard(eve_cell)
     return blocked
@@ -380,6 +395,22 @@ def _all_grid_cells():
         for y in range(settings.TILE_COUNT_Y)
         for x in range(settings.TILE_COUNT_X)
     ]
+
+
+def _adjacent_cells(cell):
+    x, y = cell
+    return [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)]
+
+
+def _collect_find_candidates(objects_by_cell, target_color, target_object, adam_visible, outside_only):
+    candidates = []
+    for cell, obj in objects_by_cell.items():
+        if obj.kind != target_object or obj.color_name != target_color:
+            continue
+        if outside_only and cell in adam_visible:
+            continue
+        candidates.append(cell)
+    return candidates
 
 
 def _choose_eve_target_path(action, eve_cell, adam_cell, adam_visible, blocked_cells):
@@ -398,43 +429,259 @@ def _choose_eve_target_path(action, eve_cell, adam_cell, adam_visible, blocked_c
     )
 
 
-def _finalize_command_feedback(command_state, eve_in_los):
-    desired_in_los = command_state.get("current_intent") == "come"
-    reward = 1 if eve_in_los == desired_in_los else -1
-
+def _finalize_command_feedback(command_state, reward, eve_in_los, outcome):
     command_state["last_reward"] = reward
     command_state["last_visibility"] = "in_los" if eve_in_los else "out_los"
-    command_state["last_outcome"] = "match" if reward > 0 else "mismatch"
+    command_state["last_outcome"] = outcome
     command_state["feedback_text"] = "GOOD" if reward > 0 else "BAD"
     command_state["feedback_timer"] = settings.FEEDBACK_BUBBLE_FRAMES
     command_state["active_path"] = []
     command_state["path_steps"] = 0
+    command_state["fetch_steps"] = 0
     command_state["current_intent"] = None
     command_state["current_action"] = None
+    command_state["current_phase"] = "idle"
+    command_state["current_target_cell"] = None
+    command_state["return_target_cell"] = None
+    command_state["pending_find_target"] = None
+    command_state["carried_object"] = None
 
 
-def _start_command_execution(command_state, token, adam, eve, adam_visible, objects_by_cell):
-    command_state["spoken_token"] = token
-    command_state["spoken_text"] = format_word(token)
-    command_state["speech_timer"] = settings.SPEECH_BUBBLE_FRAMES
-    command_state["current_intent"] = "come" if token == command_state["come_token"] else "leave"
-    command_state["current_action"] = _decode_eve_command_action(command_state, token)
-    command_state["path_steps"] = 0
+def _finalize_visibility_command(command_state, eve_in_los):
+    desired_in_los = command_state.get("current_intent") == "come"
+    reward = 1 if eve_in_los == desired_in_los else -1
+    outcome = "match" if reward > 0 else "mismatch"
+    _finalize_command_feedback(command_state, reward=reward, eve_in_los=eve_in_los, outcome=outcome)
 
+
+def _finalize_find_command(command_state, eve_in_los, success, outcome):
+    reward = 1 if success else -1
+    _finalize_command_feedback(command_state, reward=reward, eve_in_los=eve_in_los, outcome=outcome)
+
+
+def _format_find_speech(command_state, command_token, color_token, object_token, color_name, object_name, mode):
+    if mode == "factored" and color_token is not None and object_token is not None:
+        return f"[{format_word(command_token)}, {format_word(color_token)}, {format_word(object_token)}]"
+    return f"[{format_word(command_token)}, {color_name.title()}, {object_name.title()}]"
+
+
+def _decode_find_target(command_state, eve, color_token, object_token, mode):
+    fallback_color = command_state.get("current_target_color")
+    fallback_object = command_state.get("current_target_object")
+    if not fallback_color or not fallback_object:
+        command_state["decoded_target_label"] = "UNKNOWN"
+        command_state["decoded_target_quality"] = "invalid"
+        command_state["decoded_target_notes"] = "missing fallback target selection"
+        return None, None
+
+    if mode != "factored" or color_token is None or object_token is None:
+        command_state["decoded_target_label"] = concept_label(fallback_object, fallback_color)
+        command_state["decoded_target_quality"] = "direct"
+        command_state["decoded_target_notes"] = ""
+        return fallback_color, fallback_object
+
+    decoded = backtrace_factored_phrase(
+        eve.language,
+        color_token=f"{color_token:04d}",
+        object_token=f"{object_token:04d}",
+        color_names=command_state["all_colors"],
+        object_types=command_state["all_objects"],
+        seen_pairs=command_state["seen_pairs"],
+    )
+    if decoded.decoded_color_label == "UNKNOWN" or decoded.decoded_object_label == "UNKNOWN":
+        command_state["decoded_target_label"] = "UNKNOWN"
+        command_state["decoded_target_quality"] = decoded.decode_quality
+        command_state["decoded_target_notes"] = decoded.notes
+        return None, None
+
+    color_name = decoded.decoded_color_label.strip().lower()
+    object_name = decoded.decoded_object_label.strip().lower()
+    command_state["decoded_target_label"] = decoded.decoded_concept_label
+    command_state["decoded_target_quality"] = decoded.decode_quality
+    command_state["decoded_target_notes"] = decoded.notes
+    return color_name, object_name
+
+
+def _maybe_drop_carried_object(command_state, objects_by_cell, eve, adam):
+    carried = command_state.get("carried_object")
+    if carried is None:
+        return
+    if eve.cell == adam.cell:
+        return
+    if eve.cell in objects_by_cell:
+        return
+    carried.cell = eve.cell
+    objects_by_cell[eve.cell] = carried
+    command_state["carried_object"] = None
+
+
+def _begin_return_phase(command_state, adam, eve, objects_by_cell):
+    adjacent = [cell for cell in _adjacent_cells(adam.cell) if is_in_bounds(*cell)]
     blocked_cells = _build_blocked_cells(objects_by_cell, adam.cell, eve.cell)
-    _, path = _choose_eve_target_path(
-        command_state["current_action"],
-        eve.cell,
-        adam.cell,
-        adam_visible,
-        blocked_cells,
+    candidates = [cell for cell in adjacent if cell not in blocked_cells]
+    if not candidates:
+        return False
+
+    target, path = select_reachable_target(
+        start=eve.cell,
+        candidates=candidates,
+        blocked=blocked_cells,
+        width=settings.TILE_COUNT_X,
+        height=settings.TILE_COUNT_Y,
+        tie_break="nearest",
+    )
+    if target is None or path is None:
+        return False
+
+    command_state["current_phase"] = "carrying_return"
+    command_state["return_target_cell"] = target
+    command_state["active_path"] = path[1:] if len(path) > 1 else []
+    return True
+
+
+def _begin_fetch_phase(command_state, adam, eve, adam_visible, objects_by_cell, mode):
+    target_color = command_state.get("current_target_color")
+    target_object = command_state.get("current_target_object")
+
+    color_token = None
+    object_token = None
+    if mode == "factored":
+        c_sem = color_key(target_color)
+        o_sem = object_key(target_object)
+        if c_sem in adam.language.q_table and o_sem in adam.language.q_table:
+            color_token = best_word(adam.language, c_sem)
+            object_token = best_word(adam.language, o_sem)
+
+    command_state["spoken_text"] = _format_find_speech(
+        command_state,
+        command_state["find_token"],
+        color_token,
+        object_token,
+        target_color,
+        target_object,
+        mode,
     )
 
-    if path and len(path) > 1:
-        command_state["active_path"] = path[1:]
+    decoded_color, decoded_object = _decode_find_target(
+        command_state,
+        eve=eve,
+        color_token=color_token,
+        object_token=object_token,
+        mode=mode,
+    )
+    if not decoded_color or not decoded_object:
+        return False, "decode_failed"
+
+    command_state["current_target_color"] = decoded_color
+    command_state["current_target_object"] = decoded_object
+    candidates = _collect_find_candidates(
+        objects_by_cell,
+        decoded_color,
+        decoded_object,
+        adam_visible=adam_visible,
+        outside_only=settings.COMMAND_FIND_TARGET_OUTSIDE_LOS,
+    )
+    if not candidates:
+        return False, "no_target"
+
+    blocked_cells = _build_blocked_cells(objects_by_cell, adam.cell, eve.cell, passable_cells=candidates)
+    target, path = select_reachable_target(
+        start=eve.cell,
+        candidates=candidates,
+        blocked=blocked_cells,
+        width=settings.TILE_COUNT_X,
+        height=settings.TILE_COUNT_Y,
+        tie_break="nearest",
+    )
+    if target is None or path is None:
+        return False, "no_path_to_target"
+
+    command_state["current_phase"] = "navigate_to_target"
+    command_state["current_target_cell"] = target
+    command_state["active_path"] = path[1:] if len(path) > 1 else []
+    command_state["fetch_steps"] = 0
+    return True, ""
+
+
+def _start_command_execution(command_state, token, adam, eve, adam_visible, objects_by_cell, rng):
+    command_state["spoken_token"] = token
+    command_state["speech_timer"] = settings.SPEECH_BUBBLE_FRAMES
+    command_state["current_intent"] = command_state["token_to_intent"].get(token, "come")
+    command_state["current_action"] = _decode_eve_command_action(command_state, token)
+    command_state["path_steps"] = 0
+    command_state["fetch_steps"] = 0
+    command_state["decoded_target_label"] = "-"
+    command_state["decoded_target_quality"] = "n/a"
+    command_state["decoded_target_notes"] = ""
+
+    if command_state["current_intent"] == "find":
+        if command_state["pending_find_target"] is not None:
+            target_color, target_object = command_state["pending_find_target"]
+            command_state["pending_find_target"] = None
+        else:
+            target_color = rng.choice(command_state["all_colors"])
+            target_object = rng.choice(command_state["all_objects"])
+        command_state["current_target_color"] = target_color
+        command_state["current_target_object"] = target_object
+
+        if command_state["current_action"] != "fetch":
+            command_state["spoken_text"] = _format_find_speech(
+                command_state,
+                command_state["find_token"],
+                None,
+                None,
+                target_color,
+                target_object,
+                command_state["mode"],
+            )
+            _finalize_find_command(command_state, eve.cell in adam_visible, False, "mismatch")
+            return
+
+        ok, failure = _begin_fetch_phase(
+            command_state=command_state,
+            adam=adam,
+            eve=eve,
+            adam_visible=adam_visible,
+            objects_by_cell=objects_by_cell,
+            mode=command_state["mode"],
+        )
+        if not ok:
+            _finalize_find_command(command_state, eve.cell in adam_visible, False, failure)
+            return
+
+        if command_state["current_phase"] == "navigate_to_target" and eve.cell == command_state["current_target_cell"]:
+            target_obj = objects_by_cell.pop(eve.cell, None)
+            if target_obj is None:
+                _finalize_find_command(command_state, eve.cell in adam_visible, False, "missing_target")
+                return
+            command_state["carried_object"] = target_obj
+            if not _begin_return_phase(command_state, adam, eve, objects_by_cell):
+                _maybe_drop_carried_object(command_state, objects_by_cell, eve, adam)
+                _finalize_find_command(command_state, eve.cell in adam_visible, False, "no_path_to_return")
+                return
+            if command_state["current_phase"] == "carrying_return" and not command_state["active_path"]:
+                carried = command_state.get("carried_object")
+                if carried is not None and eve.cell not in objects_by_cell and eve.cell != adam.cell:
+                    carried.cell = eve.cell
+                    objects_by_cell[eve.cell] = carried
+                    command_state["carried_object"] = None
+                    _finalize_find_command(command_state, eve.cell in adam_visible, True, "fetched")
+                    return
     else:
-        command_state["active_path"] = []
-        _finalize_command_feedback(command_state, eve.cell in adam_visible)
+        command_state["spoken_text"] = format_word(token)
+        blocked_cells = _build_blocked_cells(objects_by_cell, adam.cell, eve.cell)
+        _, path = _choose_eve_target_path(
+            command_state["current_action"],
+            eve.cell,
+            adam.cell,
+            adam_visible,
+            blocked_cells,
+        )
+        if path and len(path) > 1:
+            command_state["active_path"] = path[1:]
+        else:
+            command_state["active_path"] = []
+            _finalize_visibility_command(command_state, eve.cell in adam_visible)
 
 
 def update_command_state(command_state, adam, eve, adam_visible, objects_by_cell, rng):
@@ -452,13 +699,62 @@ def update_command_state(command_state, adam, eve, adam_visible, objects_by_cell
         if command_state["move_cooldown"] == 0:
             eve.cell = command_state["active_path"].pop(0)
             command_state["path_steps"] += 1
-            command_state["move_cooldown"] = 2
+            if command_state.get("current_intent") == "find":
+                command_state["fetch_steps"] += 1
+                command_state["move_cooldown"] = settings.COMMAND_FETCH_MOVE_COOLDOWN
+            else:
+                command_state["move_cooldown"] = 2
 
-            if (
-                not command_state["active_path"]
-                or command_state["path_steps"] >= settings.MAX_COMMAND_PATH_STEPS
-            ):
-                _finalize_command_feedback(command_state, eve.cell in adam_visible)
+            if command_state.get("current_intent") == "find":
+                if command_state["fetch_steps"] >= settings.COMMAND_MAX_FETCH_STEPS:
+                    _maybe_drop_carried_object(command_state, objects_by_cell, eve, adam)
+                    _finalize_find_command(command_state, eve.cell in adam_visible, False, "max_steps")
+                    return
+
+                if command_state["current_phase"] == "navigate_to_target":
+                    reached_target = eve.cell == command_state["current_target_cell"]
+                    if reached_target:
+                        target_obj = objects_by_cell.pop(eve.cell, None)
+                        if target_obj is None:
+                            _finalize_find_command(command_state, eve.cell in adam_visible, False, "missing_target")
+                            return
+                        command_state["carried_object"] = target_obj
+                        if not _begin_return_phase(command_state, adam, eve, objects_by_cell):
+                            _maybe_drop_carried_object(command_state, objects_by_cell, eve, adam)
+                            _finalize_find_command(command_state, eve.cell in adam_visible, False, "no_path_to_return")
+                            return
+                        if not command_state["active_path"]:
+                            carried = command_state.get("carried_object")
+                            if carried is not None and eve.cell not in objects_by_cell and eve.cell != adam.cell:
+                                carried.cell = eve.cell
+                                objects_by_cell[eve.cell] = carried
+                                command_state["carried_object"] = None
+                                _finalize_find_command(command_state, eve.cell in adam_visible, True, "fetched")
+                                return
+                    elif not command_state["active_path"]:
+                        _finalize_find_command(command_state, eve.cell in adam_visible, False, "no_path_to_target")
+                        return
+                elif command_state["current_phase"] == "carrying_return":
+                    if not command_state["active_path"]:
+                        carried = command_state.get("carried_object")
+                        if carried is None:
+                            _finalize_find_command(command_state, eve.cell in adam_visible, False, "missing_carry")
+                            return
+                        if eve.cell == adam.cell or eve.cell in objects_by_cell:
+                            _maybe_drop_carried_object(command_state, objects_by_cell, eve, adam)
+                            _finalize_find_command(command_state, eve.cell in adam_visible, False, "drop_failed")
+                            return
+                        carried.cell = eve.cell
+                        objects_by_cell[eve.cell] = carried
+                        command_state["carried_object"] = None
+                        _finalize_find_command(command_state, eve.cell in adam_visible, True, "fetched")
+                        return
+            else:
+                if (
+                    not command_state["active_path"]
+                    or command_state["path_steps"] >= settings.MAX_COMMAND_PATH_STEPS
+                ):
+                    _finalize_visibility_command(command_state, eve.cell in adam_visible)
         return
 
     token = None
@@ -468,13 +764,20 @@ def update_command_state(command_state, adam, eve, adam_visible, objects_by_cell
     else:
         frames_since_issue = command_state["frame"] - command_state["last_issue_frame"]
         if command_state["auto_enabled"] and frames_since_issue >= settings.COMMAND_INTERVAL_FRAMES:
-            token = rng.choice([command_state["come_token"], command_state["leave_token"]])
+            if rng.random() < settings.COMMAND_AUTO_FIND_RATE:
+                token = command_state["find_token"]
+                command_state["pending_find_target"] = (
+                    rng.choice(command_state["all_colors"]),
+                    rng.choice(command_state["all_objects"]),
+                )
+            else:
+                token = rng.choice([command_state["come_token"], command_state["leave_token"]])
 
     if token is None:
         return
 
     command_state["last_issue_frame"] = command_state["frame"]
-    _start_command_execution(command_state, token, adam, eve, adam_visible, objects_by_cell)
+    _start_command_execution(command_state, token, adam, eve, adam_visible, objects_by_cell, rng)
 
 
 def build_palette_slots(pygame, object_types):
@@ -701,9 +1004,16 @@ def get_inspector_controls():
         "object_label": (px + 212, row2_y, 120, 22),
         "token_color": (px + 8, row2_y + 30, 86, 22),
         "token_object": (px + 104, row2_y + 30, 86, 22),
-        "cmd_auto": (px + 8, controls_y, 88, 22),
-        "cmd_force_a": (px + 104, controls_y, 95, 22),
-        "cmd_force_b": (px + 206, controls_y, 95, 22),
+        "cmd_auto": (px + 8, controls_y, 70, 22),
+        "cmd_force_a": (px + 84, controls_y, 88, 22),
+        "cmd_force_b": (px + 178, controls_y, 88, 22),
+        "cmd_force_c": (px + 272, controls_y, 126, 22),
+        "cmd_color_prev": (px + 8, row2_y, 22, 22),
+        "cmd_color_label": (px + 34, row2_y, 130, 22),
+        "cmd_color_next": (px + 168, row2_y, 22, 22),
+        "cmd_object_prev": (px + 196, row2_y, 22, 22),
+        "cmd_object_label": (px + 222, row2_y, 130, 22),
+        "cmd_object_next": (px + 356, row2_y, 22, 22),
     }
 
 
@@ -983,6 +1293,13 @@ def draw_lexicon_panel(
         auto_rect = _to_rect(pygame, controls["cmd_auto"])
         force_a_rect = _to_rect(pygame, controls["cmd_force_a"])
         force_b_rect = _to_rect(pygame, controls["cmd_force_b"])
+        force_c_rect = _to_rect(pygame, controls["cmd_force_c"])
+        cmd_color_prev_rect = _to_rect(pygame, controls["cmd_color_prev"])
+        cmd_color_label_rect = _to_rect(pygame, controls["cmd_color_label"])
+        cmd_color_next_rect = _to_rect(pygame, controls["cmd_color_next"])
+        cmd_object_prev_rect = _to_rect(pygame, controls["cmd_object_prev"])
+        cmd_object_label_rect = _to_rect(pygame, controls["cmd_object_label"])
+        cmd_object_next_rect = _to_rect(pygame, controls["cmd_object_next"])
 
         auto_on = bool(command_state.get("auto_enabled", False))
         auto_label = "Auto: ON" if auto_on else "Auto: OFF"
@@ -990,20 +1307,53 @@ def draw_lexicon_panel(
             (auto_rect, auto_label),
             (force_a_rect, f"Force A {format_word(command_state.get('come_token'))}"),
             (force_b_rect, f"Force B {format_word(command_state.get('leave_token'))}"),
+            (force_c_rect, f"Force C {format_word(command_state.get('find_token'))}"),
         ]:
             pygame.draw.rect(screen, (42, 52, 68), rect, border_radius=5)
             pygame.draw.rect(screen, (102, 120, 144), rect, width=1, border_radius=5)
             txt = small_font.render(label, True, (222, 230, 242))
             screen.blit(txt, (rect.x + 6, rect.y + 4))
 
-        status_y = auto_rect.y + 32
+        for rect, label in [
+            (cmd_color_prev_rect, "<"),
+            (cmd_color_next_rect, ">"),
+            (cmd_object_prev_rect, "<"),
+            (cmd_object_next_rect, ">"),
+        ]:
+            pygame.draw.rect(screen, (42, 49, 62), rect, border_radius=5)
+            pygame.draw.rect(screen, (96, 114, 138), rect, width=1, border_radius=5)
+            txt = small_font.render(label, True, (222, 230, 242))
+            screen.blit(txt, (rect.x + (rect.width - txt.get_width()) // 2, rect.y + 3))
+
+        selected_color = command_state.get("find_target_color", "red")
+        selected_object = command_state.get("find_target_object", "apple")
+        for rect, label in [
+            (cmd_color_label_rect, f"Find Color: {selected_color.title()}"),
+            (cmd_object_label_rect, f"Find Obj: {selected_object.title()}"),
+        ]:
+            pygame.draw.rect(screen, (30, 36, 48), rect, border_radius=5)
+            pygame.draw.rect(screen, (88, 102, 124), rect, width=1, border_radius=5)
+            txt = small_font.render(label, True, (214, 224, 236))
+            screen.blit(txt, (rect.x + 7, rect.y + 4))
+
+        status_y = auto_rect.y + 58
         status_lines = [
-            f"Spoken token: {command_state.get('spoken_text', '----')}",
-            f"Eve action: {command_state.get('current_action') or 'idle'}",
+            f"Spoken phrase: {command_state.get('spoken_text', '----')}",
+            f"Intent/Action: {command_state.get('current_intent') or 'idle'} / {command_state.get('current_action') or 'idle'}",
+            f"Target: {concept_label(command_state.get('current_target_object') or selected_object, command_state.get('current_target_color') or selected_color)}",
+            f"Decoded: {command_state.get('decoded_target_label', '-')}",
+            f"Fetch phase: {command_state.get('current_phase', 'idle')}",
+            f"Carrying: {command_state.get('carried_object').color_name.title() + ' ' + command_state.get('carried_object').kind.title() if command_state.get('carried_object') else 'None'}",
             f"Last reward: {command_state.get('last_reward') if command_state.get('last_reward') is not None else 'n/a'}",
-            f"Visibility: {command_state.get('last_visibility', 'n/a')}",
-            f"Outcome: {command_state.get('last_outcome', 'n/a')}",
+            f"Visibility: {command_state.get('last_visibility', 'n/a')}  Outcome: {command_state.get('last_outcome', 'n/a')}",
         ]
+        if settings.COMMAND_PANEL_SHOW_VERBOSE:
+            status_lines.extend(
+                [
+                    f"Decode quality: {command_state.get('decoded_target_quality', 'n/a')}",
+                    f"Decode notes: {command_state.get('decoded_target_notes', '') or '-'}",
+                ]
+            )
         for idx, line in enumerate(status_lines):
             color = (206, 220, 238) if idx < 2 else (176, 194, 216)
             txt = small_font.render(line, True, color)
@@ -1130,10 +1480,6 @@ def draw_lexicon_panel(
 def run_training(mode, object_types, color_names, seed, steps, write_logs, run_sweep, holdout_pairs=None):
     rng = random.Random(seed) if seed is not None else random.Random()
     cfg = TrainingConfig(learning_steps=steps)
-    command_cfg = CommandTrainingConfig(word_space_size=cfg.word_space_size)
-    command_rng = random.Random(seed + 1337) if seed is not None else random.Random()
-    come_token, leave_token = initialize_hidden_command_mapping(command_cfg, command_rng)
-    command_result = train_command_grounding(command_cfg, come_token, leave_token, command_rng)
 
     adam_lang = LanguageAgent("Adam")
     eve_lang = LanguageAgent("Eve")
@@ -1189,6 +1535,8 @@ def run_training(mode, object_types, color_names, seed, steps, write_logs, run_s
             "all_phrase_consensus": all(row["shared_phrase_ids"] != "NO_CONSENSUS" for row in phrase_rows),
             "all_slot_consensus": False,
         }
+        seen_pairs = [f"{color_name}:{object_type}" for object_type in object_types for color_name in color_names]
+        heldout_pairs = []
 
     else:
         color_semantics = [color_key(color_name) for color_name in color_names]
@@ -1211,6 +1559,18 @@ def run_training(mode, object_types, color_names, seed, steps, write_logs, run_s
         seen_pairs = factored.seen_pairs
         heldout_pairs = factored.heldout_pairs
 
+    command_cfg = CommandTrainingConfig(word_space_size=cfg.word_space_size)
+    command_rng = random.Random(seed + 1337) if seed is not None else random.Random()
+    come_token, leave_token, find_token = initialize_hidden_command_mapping(command_cfg, command_rng)
+    command_result = train_command_grounding(
+        command_cfg,
+        come_token,
+        leave_token,
+        find_token,
+        seen_pairs=seen_pairs,
+        rng=command_rng,
+    )
+
     lexicon_rows = phrase_rows
 
     log_paths = {}
@@ -1230,10 +1590,12 @@ def run_training(mode, object_types, color_names, seed, steps, write_logs, run_s
             command_tokens={
                 "come_token": command_result.come_token,
                 "leave_token": command_result.leave_token,
+                "find_token": command_result.find_token,
             },
             command_training={
                 "episodes": command_result.episodes,
                 "accuracy": command_result.accuracy,
+                "accuracy_by_intent": command_result.accuracy_by_intent,
                 "eve_action_q": command_result.eve_action_q,
             },
         )
@@ -1322,9 +1684,22 @@ def run_visualization(
     command_state = {
         "come_token": command_result.come_token,
         "leave_token": command_result.leave_token,
+        "find_token": command_result.find_token,
+        "token_to_intent": {
+            command_result.come_token: "come",
+            command_result.leave_token: "leave",
+            command_result.find_token: "find",
+        },
         "eve_action_q": command_result.eve_action_q,
         "auto_enabled": True,
         "pending_override": None,
+        "pending_find_target": None,
+        "all_colors": list(color_names),
+        "all_objects": list(object_types),
+        "find_target_color": color_names[0] if color_names else "red",
+        "find_target_object": object_types[0] if object_types else "apple",
+        "seen_pairs": seen_pairs_set,
+        "mode": mode,
         "frame": 0,
         "last_issue_frame": -settings.COMMAND_INTERVAL_FRAMES,
         "spoken_token": None,
@@ -1334,14 +1709,28 @@ def run_visualization(
         "feedback_timer": 0,
         "active_path": [],
         "path_steps": 0,
+        "fetch_steps": 0,
         "move_cooldown": 0,
         "current_intent": None,
         "current_action": None,
+        "current_phase": "idle",
+        "current_target_color": None,
+        "current_target_object": None,
+        "current_target_cell": None,
+        "return_target_cell": None,
+        "decoded_target_label": "-",
+        "decoded_target_quality": "n/a",
+        "decoded_target_notes": "",
+        "carried_object": None,
         "last_reward": None,
         "last_visibility": "n/a",
         "last_outcome": "n/a",
     }
-    command_rng = random.Random((command_result.come_token * 131) + command_result.leave_token)
+    command_rng = random.Random(
+        (command_result.come_token * 131)
+        + (command_result.leave_token * 17)
+        + (command_result.find_token * 7)
+    )
 
     def run_backtrace_query(use_semantic_selection):
         if not is_backtrace_enabled(mode):
@@ -1497,6 +1886,41 @@ def run_visualization(
                     if point_in_rect(event.pos, controls["cmd_force_b"]):
                         command_state["pending_override"] = command_state["leave_token"]
                         continue
+                    if point_in_rect(event.pos, controls["cmd_force_c"]):
+                        command_state["pending_override"] = command_state["find_token"]
+                        command_state["pending_find_target"] = (
+                            command_state["find_target_color"],
+                            command_state["find_target_object"],
+                        )
+                        continue
+                    if point_in_rect(event.pos, controls["cmd_color_prev"]):
+                        command_state["find_target_color"] = _cycle_selected(
+                            command_state["all_colors"],
+                            command_state["find_target_color"],
+                            -1,
+                        )
+                        continue
+                    if point_in_rect(event.pos, controls["cmd_color_next"]):
+                        command_state["find_target_color"] = _cycle_selected(
+                            command_state["all_colors"],
+                            command_state["find_target_color"],
+                            1,
+                        )
+                        continue
+                    if point_in_rect(event.pos, controls["cmd_object_prev"]):
+                        command_state["find_target_object"] = _cycle_selected(
+                            command_state["all_objects"],
+                            command_state["find_target_object"],
+                            -1,
+                        )
+                        continue
+                    if point_in_rect(event.pos, controls["cmd_object_next"]):
+                        command_state["find_target_object"] = _cycle_selected(
+                            command_state["all_objects"],
+                            command_state["find_target_object"],
+                            1,
+                        )
+                        continue
 
                 header_rect, option_rects = get_color_dropdown_geometry(pygame, palette_slots, color_names)
 
@@ -1590,6 +2014,13 @@ def run_visualization(
 
         for agent in agents:
             draw_agent(pygame, screen, agent)
+        draw_carried_object(
+            pygame,
+            screen,
+            carrier=eve,
+            carried_object=command_state.get("carried_object"),
+            sprite_cache=sprite_cache,
+        )
 
         adam_x, adam_y = cell_to_screen(*adam.cell)
         bubble_anchor_x = adam_x + VISUAL_TILE_WIDTH // 2
@@ -1809,8 +2240,16 @@ def main():
             "Command grounding: "
             f"A={format_word(command_result.come_token)} "
             f"B={format_word(command_result.leave_token)} "
+            f"C={format_word(command_result.find_token)} "
             f"accuracy={command_result.accuracy:.3f} "
             f"episodes={command_result.episodes}"
+        )
+        by_intent = command_result.accuracy_by_intent
+        print(
+            "Command accuracy by intent: "
+            f"come={by_intent.get('come', 0.0):.3f} "
+            f"leave={by_intent.get('leave', 0.0):.3f} "
+            f"find={by_intent.get('find', 0.0):.3f}"
         )
 
         if slot_rows:

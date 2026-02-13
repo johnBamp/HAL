@@ -78,8 +78,10 @@ class CommandTrainingConfig:
 class CommandTrainingResult:
     come_token: int
     leave_token: int
+    find_token: int
     eve_action_q: dict[int, dict[str, float]]
     accuracy: float
+    accuracy_by_intent: dict[str, float]
     episodes: int
     history_rows: list[dict]
 
@@ -536,37 +538,55 @@ def backtrace_factored_phrase(
 def initialize_hidden_command_mapping(
     cfg: CommandTrainingConfig,
     rng: random.Random | None = None,
-) -> tuple[int, int]:
+) -> tuple[int, int, int]:
     rng = rng or random
     come_token = rng.randint(0, cfg.word_space_size - 1)
     leave_token = rng.randint(0, cfg.word_space_size - 1)
     while leave_token == come_token:
         leave_token = rng.randint(0, cfg.word_space_size - 1)
-    return come_token, leave_token
+    find_token = rng.randint(0, cfg.word_space_size - 1)
+    while find_token in {come_token, leave_token}:
+        find_token = rng.randint(0, cfg.word_space_size - 1)
+    return come_token, leave_token, find_token
 
 
 def _policy_action(eve_action_q: dict[int, dict[str, float]], token: int) -> str:
     row = eve_action_q[token]
-    return "approach" if row["approach"] >= row["avoid"] else "avoid"
+    ordered_actions = sorted(row.keys())
+    return max(ordered_actions, key=lambda action: row[action])
 
 
 def train_command_grounding(
     cfg: CommandTrainingConfig,
     come_token: int,
     leave_token: int,
+    find_token: int,
+    seen_pairs: list[str] | None = None,
     rng: random.Random | None = None,
 ) -> CommandTrainingResult:
     rng = rng or random
-    actions = ("approach", "avoid")
+    actions = ("approach", "avoid", "fetch")
+    token_to_intent = {
+        come_token: "come",
+        leave_token: "leave",
+        find_token: "find",
+    }
+    desired_action_for_intent = {
+        "come": "approach",
+        "leave": "avoid",
+        "find": "fetch",
+    }
+    seen_pairs = seen_pairs or []
     eve_action_q: dict[int, dict[str, float]] = {
-        come_token: {"approach": 0.0, "avoid": 0.0},
-        leave_token: {"approach": 0.0, "avoid": 0.0},
+        token: {action: 0.0 for action in actions}
+        for token in token_to_intent
     }
     history_rows: list[dict] = []
 
     for episode in range(cfg.episodes):
-        token = rng.choice([come_token, leave_token])
-        intent = "come" if token == come_token else "leave"
+        token = rng.choice(list(token_to_intent.keys()))
+        intent = token_to_intent[token]
+        desired_action = desired_action_for_intent[intent]
 
         if rng.random() < cfg.epsilon:
             chosen_action = rng.choice(actions)
@@ -575,17 +595,13 @@ def train_command_grounding(
             chosen_action = _policy_action(eve_action_q, token)
             explore = False
 
-        final_in_los = chosen_action == "approach"
-        desired_in_los = intent == "come"
-        reward = 1.0 if final_in_los == desired_in_los else -1.0
+        reward = 1.0 if chosen_action == desired_action else -1.0
 
         old_q = eve_action_q[token][chosen_action]
         eve_action_q[token][chosen_action] = old_q + cfg.learning_rate * (reward - old_q)
 
         policy_action = _policy_action(eve_action_q, token)
-        policy_correct = (policy_action == "approach" and desired_in_los) or (
-            policy_action == "avoid" and not desired_in_los
-        )
+        policy_correct = policy_action == desired_action
 
         history_rows.append(
             {
@@ -598,19 +614,32 @@ def train_command_grounding(
                 "reward": reward,
                 "q_approach": eve_action_q[token]["approach"],
                 "q_avoid": eve_action_q[token]["avoid"],
+                "q_fetch": eve_action_q[token]["fetch"],
                 "policy_correct": policy_correct,
+                "seen_pairs_count": len(seen_pairs),
             }
         )
 
     window = max(1, min(cfg.trailing_window, len(history_rows)))
     recent = history_rows[-window:]
     accuracy = sum(1 for row in recent if row["policy_correct"]) / len(recent)
+    accuracy_by_intent: dict[str, float] = {}
+    for intent_name in ("come", "leave", "find"):
+        intent_rows = [row for row in recent if row["intent"] == intent_name]
+        if intent_rows:
+            accuracy_by_intent[intent_name] = (
+                sum(1 for row in intent_rows if row["policy_correct"]) / len(intent_rows)
+            )
+        else:
+            accuracy_by_intent[intent_name] = 0.0
 
     return CommandTrainingResult(
         come_token=come_token,
         leave_token=leave_token,
+        find_token=find_token,
         eve_action_q=eve_action_q,
         accuracy=accuracy,
+        accuracy_by_intent=accuracy_by_intent,
         episodes=cfg.episodes,
         history_rows=history_rows,
     )
@@ -962,13 +991,21 @@ def write_lexicon_logs(
         print_lines.append(
             "Command tokens: "
             f"A={format_word(command_tokens.get('come_token'))} "
-            f"B={format_word(command_tokens.get('leave_token'))}"
+            f"B={format_word(command_tokens.get('leave_token'))} "
+            f"C={format_word(command_tokens.get('find_token'))}"
         )
     if command_training:
+        by_intent = command_training.get("accuracy_by_intent", {})
+        intent_text = (
+            f"come={by_intent.get('come', 'n/a')} "
+            f"leave={by_intent.get('leave', 'n/a')} "
+            f"find={by_intent.get('find', 'n/a')}"
+        )
         print_lines.append(
             "Command training: "
             f"episodes={command_training.get('episodes', 'n/a')} "
-            f"accuracy={command_training.get('accuracy', 'n/a')}"
+            f"accuracy={command_training.get('accuracy', 'n/a')} "
+            f"({intent_text})"
         )
 
     if slot_lexicon:

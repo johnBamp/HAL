@@ -1,35 +1,24 @@
 HAL Lexicon
 --------------------------------------------
-Mode: factored
+Mode: holistic
 Syntax: color_object
-Metrics: target_unique=9 achieved_unique=9 phrase_consensus=True
+Metrics: target_unique=14 achieved_unique=14 phrase_consensus=True
 Holdouts: trained=14 heldout=0
-Command tokens: A=8866 B=8343
-Command training: episodes=1200 accuracy=1.0
-Base Factored Lexicon
---------------------------------------------
-color   Red          Adam:8115 Eve:8115 Shared:8115
-color   Orange       Adam:7200 Eve:7200 Shared:7200
-color   Yellow       Adam:3370 Eve:3370 Shared:3370
-color   Green        Adam:4125 Eve:4125 Shared:4125
-color   Blue         Adam:4326 Eve:4326 Shared:4326
-color   Indigo       Adam:8041 Eve:8041 Shared:8041
-color   Violet       Adam:8726 Eve:8726 Shared:8726
-object  Apple        Adam:5720 Eve:5720 Shared:5720
-object  Mushroom     Adam:2213 Eve:2213 Shared:2213
+Command tokens: A=6389 B=2427 C=3491
+Command training: episodes=1200 accuracy=1.0 (come=1.0 leave=1.0 find=1.0)
 Composed Phrases
 --------------------------------------------
-[T] Red Apple        Adam:[8115, 5720]   Eve:[8115, 5720]   Shared:[8115, 5720]
-[T] Red Mushroom     Adam:[8115, 2213]   Eve:[8115, 2213]   Shared:[8115, 2213]
-[T] Orange Apple     Adam:[7200, 5720]   Eve:[7200, 5720]   Shared:[7200, 5720]
-[T] Orange Mushroom  Adam:[7200, 2213]   Eve:[7200, 2213]   Shared:[7200, 2213]
-[T] Yellow Apple     Adam:[3370, 5720]   Eve:[3370, 5720]   Shared:[3370, 5720]
-[T] Yellow Mushroom  Adam:[3370, 2213]   Eve:[3370, 2213]   Shared:[3370, 2213]
-[T] Green Apple      Adam:[4125, 5720]   Eve:[4125, 5720]   Shared:[4125, 5720]
-[T] Green Mushroom   Adam:[4125, 2213]   Eve:[4125, 2213]   Shared:[4125, 2213]
-[T] Blue Apple       Adam:[4326, 5720]   Eve:[4326, 5720]   Shared:[4326, 5720]
-[T] Blue Mushroom    Adam:[4326, 2213]   Eve:[4326, 2213]   Shared:[4326, 2213]
-[T] Indigo Apple     Adam:[8041, 5720]   Eve:[8041, 5720]   Shared:[8041, 5720]
-[T] Indigo Mushroom  Adam:[8041, 2213]   Eve:[8041, 2213]   Shared:[8041, 2213]
-[T] Violet Apple     Adam:[8726, 5720]   Eve:[8726, 5720]   Shared:[8726, 5720]
-[T] Violet Mushroom  Adam:[8726, 2213]   Eve:[8726, 2213]   Shared:[8726, 2213]
+[T] Red Apple        Adam:5905           Eve:5905           Shared:5905
+[T] Orange Apple     Adam:5585           Eve:5585           Shared:5585
+[T] Yellow Apple     Adam:2254           Eve:2254           Shared:2254
+[T] Green Apple      Adam:7928           Eve:7928           Shared:7928
+[T] Blue Apple       Adam:4948           Eve:4948           Shared:4948
+[T] Indigo Apple     Adam:4932           Eve:4932           Shared:4932
+[T] Violet Apple     Adam:6547           Eve:6547           Shared:6547
+[T] Red Mushroom     Adam:6218           Eve:6218           Shared:6218
+[T] Orange Mushroom  Adam:2563           Eve:2563           Shared:2563
+[T] Yellow Mushroom  Adam:3861           Eve:3861           Shared:3861
+[T] Green Mushroom   Adam:1284           Eve:1284           Shared:1284
+[T] Blue Mushroom    Adam:5830           Eve:5830           Shared:5830
+[T] Indigo Mushroom  Adam:5082           Eve:5082           Shared:5082
+[T] Violet Mushroom  Adam:2460           Eve:2460           Shared:2460
