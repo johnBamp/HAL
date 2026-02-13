@@ -1,0 +1,32 @@
+HAL Lexicon
+--------------------------------------------
+Mode: factored
+Syntax: color_object
+Metrics: target_unique=9 achieved_unique=9 phrase_consensus=True
+Base Factored Lexicon
+--------------------------------------------
+color   Red          Adam:7798 Eve:7798 Shared:7798
+color   Orange       Adam:6799 Eve:6799 Shared:6799
+color   Yellow       Adam:5104 Eve:5104 Shared:5104
+color   Green        Adam:6706 Eve:6706 Shared:6706
+color   Blue         Adam:3453 Eve:3453 Shared:3453
+color   Indigo       Adam:5309 Eve:5309 Shared:5309
+color   Violet       Adam:3574 Eve:3574 Shared:3574
+object  Apple        Adam:2510 Eve:2510 Shared:2510
+object  Mushroom     Adam:2048 Eve:2048 Shared:2048
+Composed Phrases
+--------------------------------------------
+Red Apple            Adam:[7798, 2510]   Eve:[7798, 2510]   Shared:[7798, 2510]
+Red Mushroom         Adam:[7798, 2048]   Eve:[7798, 2048]   Shared:[7798, 2048]
+Orange Apple         Adam:[6799, 2510]   Eve:[6799, 2510]   Shared:[6799, 2510]
+Orange Mushroom      Adam:[6799, 2048]   Eve:[6799, 2048]   Shared:[6799, 2048]
+Yellow Apple         Adam:[5104, 2510]   Eve:[5104, 2510]   Shared:[5104, 2510]
+Yellow Mushroom      Adam:[5104, 2048]   Eve:[5104, 2048]   Shared:[5104, 2048]
+Green Apple          Adam:[6706, 2510]   Eve:[6706, 2510]   Shared:[6706, 2510]
+Green Mushroom       Adam:[6706, 2048]   Eve:[6706, 2048]   Shared:[6706, 2048]
+Blue Apple           Adam:[3453, 2510]   Eve:[3453, 2510]   Shared:[3453, 2510]
+Blue Mushroom        Adam:[3453, 2048]   Eve:[3453, 2048]   Shared:[3453, 2048]
+Indigo Apple         Adam:[5309, 2510]   Eve:[5309, 2510]   Shared:[5309, 2510]
+Indigo Mushroom      Adam:[5309, 2048]   Eve:[5309, 2048]   Shared:[5309, 2048]
+Violet Apple         Adam:[3574, 2510]   Eve:[3574, 2510]   Shared:[3574, 2510]
+Violet Mushroom      Adam:[3574, 2048]   Eve:[3574, 2048]   Shared:[3574, 2048]

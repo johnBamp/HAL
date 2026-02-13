@@ -1,0 +1,39 @@
+"""Shared configuration for HAL language training and visualization."""
+
+# Grid configuration
+TILE_COUNT_X = 9
+TILE_COUNT_Y = 9
+LOGICAL_TILE_WIDTH = 16
+LOGICAL_TILE_HEIGHT = 16
+VISUAL_SCALE = 3
+TILE_GAP = 0
+ORIGIN_X = 12
+ORIGIN_Y = 12
+
+# Vision configuration
+RENDER_DISTANCE_TILES = 3
+FOV_DEGREES = 45
+NUM_VISION_RAYS = 61
+
+# Language/Q-table configuration
+WORD_SPACE_SIZE = 10000
+LEARNING_STEPS = 220
+LEXICON_OBJECT_TYPES = ("apple", "mushroom")
+LEXICON_COLOR_NAMES = ("red", "orange", "yellow", "green", "blue", "indigo", "violet")
+NOISE_SCALE = 0.045
+MIN_NOISE_SCALE = 0.004
+WTA_GAIN = 0.12
+WTA_DECAY = 0.003
+COMM_LR = 0.32
+SOCIAL_LR = 1.15
+SELF_PENALTY_LR = 0.24
+CONSENSUS_STREAK_TARGET = 8
+
+# UI panel configuration
+PANEL_WIDTH = 420
+PANEL_MARGIN = 10
+LINE_HEIGHT = 20
+INVENTORY_BAR_HEIGHT = 110
+
+# Logging
+ARTIFACTS_DIR = "artifacts"

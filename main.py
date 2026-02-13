@@ -1,443 +1,1172 @@
-from __future__ import annotations
-
 import argparse
 import math
-from dataclasses import dataclass
-from typing import Optional
+import random
+import sys
 
-import pygame
+import settings
+from hal import (
+    LanguageAgent,
+    TrainingConfig,
+    best_word,
+    color_key,
+    format_word,
+    initialize_language,
+    object_key,
+    sweep_social_pressures,
+    train_factored_language,
+    train_language,
+    write_lexicon_logs,
+)
 
-from hal import HalEnv, NamingGameTrainer, NoOpScheduler
+VISUAL_TILE_WIDTH = settings.LOGICAL_TILE_WIDTH * settings.VISUAL_SCALE
+VISUAL_TILE_HEIGHT = settings.LOGICAL_TILE_HEIGHT * settings.VISUAL_SCALE
+
+GRID_STRIDE_X = VISUAL_TILE_WIDTH + settings.TILE_GAP
+GRID_STRIDE_Y = VISUAL_TILE_HEIGHT + settings.TILE_GAP
+GRID_PIXEL_WIDTH = settings.TILE_COUNT_X * VISUAL_TILE_WIDTH + (settings.TILE_COUNT_X - 1) * settings.TILE_GAP
+GRID_PIXEL_HEIGHT = settings.TILE_COUNT_Y * VISUAL_TILE_HEIGHT + (settings.TILE_COUNT_Y - 1) * settings.TILE_GAP
+
+GRID_LEFT = settings.ORIGIN_X
+GRID_TOP = settings.ORIGIN_Y + settings.INVENTORY_BAR_HEIGHT
+
+MAP_WIDTH = settings.ORIGIN_X * 2 + GRID_PIXEL_WIDTH
+SCREEN_WIDTH = MAP_WIDTH + settings.PANEL_WIDTH
+SCREEN_HEIGHT = settings.ORIGIN_Y + settings.INVENTORY_BAR_HEIGHT + GRID_PIXEL_HEIGHT + settings.ORIGIN_Y
+
+INVENTORY_SLOT_SIZE = 56
+INVENTORY_SLOT_GAP = 14
+
+COLOR_WHEEL = [
+    ("red", (196, 40, 38)),
+    ("orange", (228, 128, 40)),
+    ("yellow", (220, 184, 48)),
+    ("green", (56, 168, 74)),
+    ("blue", (54, 114, 214)),
+    ("indigo", (76, 64, 176)),
+    ("violet", (142, 76, 204)),
+]
+COLOR_RGB = {name: rgb for name, rgb in COLOR_WHEEL}
+
+DEFAULT_OBJECT_TYPES = list(settings.LEXICON_OBJECT_TYPES)
+DEFAULT_COLOR_NAMES = [name for name in settings.LEXICON_COLOR_NAMES if name in COLOR_RGB]
+DEFAULT_MODE = "factored"
 
 
-@dataclass
-class Button:
-    label: str
-    rect: pygame.Rect
-    action: str
+class WorldAgent:
+    def __init__(self, name, color, language):
+        self.name = name
+        self.color = color
+        self.language = language
+        self.cell = None
+        self.rotation_deg = 0.0
+        self.vision_slice = []
 
 
-class HalPygameApp:
-    def __init__(self, seed: int) -> None:
-        pygame.init()
-        pygame.display.set_caption("Heuristic Algorithmic Language (HAL)")
+class Tile:
+    def __init__(self, pygame, grid_x, grid_y):
+        self.grid_x = grid_x
+        self.grid_y = grid_y
+        self.x, self.y = cell_to_screen(grid_x, grid_y)
 
-        self.seed = seed
-        self.cell_size = 5
-        self.margin = 14
-        self.sidebar_width = 440
-        self.flash_duration_s = 0.22
-        self.row_height = 20
-
-        self.env = HalEnv(seed=seed)
-        self.trainer = NamingGameTrainer(
-            env=self.env,
-            seed=seed + 1,
-            scheduler=NoOpScheduler(),
+        self.base_surface = pygame.Surface((settings.LOGICAL_TILE_WIDTH, settings.LOGICAL_TILE_HEIGHT))
+        self.base_surface.fill((20, 20, 20))
+        pygame.draw.rect(
+            self.base_surface,
+            (110, 110, 110),
+            pygame.Rect(0, 0, settings.LOGICAL_TILE_WIDTH, settings.LOGICAL_TILE_HEIGHT),
+            width=1,
         )
 
-        self.map_px = self.env.grid.width * self.cell_size
-        self.window_w = self.margin * 3 + self.map_px + self.sidebar_width
-        self.window_h = self.margin * 2 + self.map_px
-        self.screen = pygame.display.set_mode((self.window_w, self.window_h))
-        self.clock = pygame.time.Clock()
-        self.font = pygame.font.SysFont("Courier New", 15)
-        self.small_font = pygame.font.SysFont("Courier New", 13)
-
-        self.map_origin = (self.margin, self.margin)
-        panel_x = self.margin * 2 + self.map_px
-        self.panel_rect = pygame.Rect(panel_x, self.margin, self.sidebar_width, self.map_px)
-
-        self.buttons: list[Button] = []
-        self.info_rect = pygame.Rect(0, 0, 0, 0)
-        self.list_rect = pygame.Rect(0, 0, 0, 0)
-        self._build_ui_layout()
-
-        self.static_map = pygame.Surface((self.map_px, self.map_px))
-        self._build_static_map()
-
-        self.running = True
-        self.paused = False
-        self.speed_steps_per_s = 120.0
-        self.training_accumulator = 0.0
-
-        self.flash_tile: Optional[int] = None
-        self.flash_timer = 0.0
-        self.selected_event_idx: Optional[int] = None
-        self.selected_tile: Optional[int] = None
-        self.selected_confidence = 0.0
-        self.selected_confidence_x = 0.0
-        self.selected_confidence_y = 0.0
-        self.selected_col_x: Optional[int] = None
-        self.selected_row_y: Optional[int] = None
-        self.scroll_offset = 0
-
-    def _build_ui_layout(self) -> None:
-        panel_left = self.panel_rect.left + 10
-        btn_y = self.panel_rect.top + 10
-        btn_w = (self.panel_rect.width - 40) // 3
-        btn_h = 32
-        gap = 10
-        self.buttons = [
-            Button("Pause", pygame.Rect(panel_left, btn_y, btn_w, btn_h), "toggle_pause"),
-            Button(
-                "Step",
-                pygame.Rect(panel_left + btn_w + gap, btn_y, btn_w, btn_h),
-                "single_step",
-            ),
-            Button(
-                "Reset",
-                pygame.Rect(panel_left + (btn_w + gap) * 2, btn_y, btn_w, btn_h),
-                "reset",
-            ),
-        ]
-
-        info_y = btn_y + btn_h + 10
-        self.info_rect = pygame.Rect(
-            panel_left,
-            info_y,
-            self.panel_rect.width - 20,
-            138,
-        )
-
-        list_y = self.info_rect.bottom + 10
-        self.list_rect = pygame.Rect(
-            panel_left,
-            list_y,
-            self.panel_rect.width - 20,
-            self.panel_rect.bottom - list_y - 10,
-        )
-
-    def _build_static_map(self) -> None:
-        outside = (22, 26, 32)
-        inside = (38, 63, 88)
-        self.static_map.fill(outside)
-        visible = set(self.env.visible_tiles())
-        for tile in visible:
-            x, y = self.env.tile_xy(tile)
-            rect = pygame.Rect(
-                x * self.cell_size,
-                y * self.cell_size,
-                self.cell_size,
-                self.cell_size,
+    def draw(self, pygame, screen, fill_color=None):
+        tile_surface = self.base_surface.copy()
+        if fill_color is not None:
+            tile_surface.fill(fill_color)
+            pygame.draw.rect(
+                tile_surface,
+                (235, 235, 235),
+                pygame.Rect(0, 0, settings.LOGICAL_TILE_WIDTH, settings.LOGICAL_TILE_HEIGHT),
+                width=1,
             )
-            self.static_map.fill(inside, rect)
 
-    def _reset(self) -> None:
-        self.env = HalEnv(seed=self.seed)
-        self.trainer = NamingGameTrainer(
-            env=self.env,
-            seed=self.seed + 1,
-            scheduler=NoOpScheduler(),
+        scaled = pygame.transform.scale(tile_surface, (VISUAL_TILE_WIDTH, VISUAL_TILE_HEIGHT))
+        screen.blit(scaled, (self.x, self.y))
+
+
+class WorldObject:
+    def __init__(self, kind, color_name, cell, concept, sprite):
+        self.kind = kind
+        self.color_name = color_name
+        self.cell = cell
+        self.concept = concept
+        self.sprite = sprite
+
+    def draw(self, pygame, screen):
+        tile_x, tile_y = cell_to_screen(*self.cell)
+        scaled = pygame.transform.scale(self.sprite, (VISUAL_TILE_WIDTH, VISUAL_TILE_HEIGHT))
+        screen.blit(scaled, (tile_x, tile_y))
+
+
+def concept_key(object_type, color_name):
+    return f"{color_name}_{object_type}"
+
+
+def concept_label(object_type, color_name):
+    return f"{color_name.title()} {object_type.title()}"
+
+
+def cell_to_screen(grid_x, grid_y):
+    x = GRID_LEFT + grid_x * GRID_STRIDE_X
+    y = GRID_TOP + grid_y * GRID_STRIDE_Y
+    return x, y
+
+
+def screen_to_cell(px, py):
+    rel_x = px - GRID_LEFT
+    rel_y = py - GRID_TOP
+    if rel_x < 0 or rel_y < 0:
+        return None
+
+    gx = rel_x // GRID_STRIDE_X
+    gy = rel_y // GRID_STRIDE_Y
+    if gx >= settings.TILE_COUNT_X or gy >= settings.TILE_COUNT_Y:
+        return None
+
+    if (rel_x % GRID_STRIDE_X) >= VISUAL_TILE_WIDTH:
+        return None
+    if (rel_y % GRID_STRIDE_Y) >= VISUAL_TILE_HEIGHT:
+        return None
+
+    return int(gx), int(gy)
+
+
+def shade_color(rgb, factor):
+    return tuple(max(0, min(255, int(c * factor))) for c in rgb)
+
+
+def mix_with_white(rgb, amount):
+    return tuple(max(0, min(255, int(c + (255 - c) * amount))) for c in rgb)
+
+
+def to_rgba(rgb, alpha=255):
+    return (rgb[0], rgb[1], rgb[2], alpha)
+
+
+def build_apple_sprite(pygame, accent_rgb):
+    sprite = pygame.Surface((settings.LOGICAL_TILE_WIDTH, settings.LOGICAL_TILE_HEIGHT), pygame.SRCALPHA)
+
+    body = to_rgba(accent_rgb)
+    shadow = to_rgba(shade_color(accent_rgb, 0.62))
+    highlight = to_rgba(mix_with_white(accent_rgb, 0.58), 220)
+    stem = (80, 52, 22, 255)
+    leaf = (88, 186, 92, 255)
+
+    pygame.draw.circle(sprite, shadow, (7, 9), 5)
+    pygame.draw.circle(sprite, shadow, (10, 9), 5)
+    pygame.draw.circle(sprite, body, (7, 8), 5)
+    pygame.draw.circle(sprite, body, (10, 8), 5)
+    pygame.draw.rect(sprite, body, pygame.Rect(5, 8, 7, 4))
+    pygame.draw.circle(sprite, highlight, (6, 6), 2)
+    pygame.draw.rect(sprite, stem, pygame.Rect(8, 2, 2, 3))
+    pygame.draw.ellipse(sprite, leaf, pygame.Rect(9, 2, 4, 3))
+    pygame.draw.ellipse(sprite, (56, 130, 65, 255), pygame.Rect(10, 3, 2, 2))
+    return sprite
+
+
+def build_mushroom_sprite(pygame, accent_rgb):
+    sprite = pygame.Surface((settings.LOGICAL_TILE_WIDTH, settings.LOGICAL_TILE_HEIGHT), pygame.SRCALPHA)
+
+    cap = to_rgba(accent_rgb)
+    cap_shadow = to_rgba(shade_color(accent_rgb, 0.58))
+    cap_highlight = to_rgba(mix_with_white(accent_rgb, 0.48), 220)
+    stem = (244, 224, 193, 255)
+    stem_shadow = (205, 172, 138, 255)
+    spot = (252, 246, 236, 255)
+
+    pygame.draw.ellipse(sprite, cap_shadow, pygame.Rect(2, 4, 12, 7))
+    pygame.draw.ellipse(sprite, cap, pygame.Rect(2, 3, 12, 7))
+    pygame.draw.ellipse(sprite, cap_highlight, pygame.Rect(4, 4, 5, 2))
+
+    pygame.draw.ellipse(sprite, stem_shadow, pygame.Rect(5, 8, 6, 6))
+    pygame.draw.ellipse(sprite, stem, pygame.Rect(5, 7, 6, 6))
+
+    pygame.draw.circle(sprite, spot, (5, 6), 1)
+    pygame.draw.circle(sprite, spot, (8, 5), 1)
+    pygame.draw.circle(sprite, spot, (10, 6), 1)
+    pygame.draw.line(sprite, stem_shadow, (6, 10), (10, 10), 1)
+    return sprite
+
+
+def get_sprite(pygame, sprite_cache, kind, color_name):
+    key = (kind, color_name)
+    if key in sprite_cache:
+        return sprite_cache[key]
+
+    accent = COLOR_RGB.get(color_name, COLOR_RGB["red"])
+    if kind == "apple":
+        sprite = build_apple_sprite(pygame, accent)
+    elif kind == "mushroom":
+        sprite = build_mushroom_sprite(pygame, accent)
+    else:
+        sprite = pygame.Surface((settings.LOGICAL_TILE_WIDTH, settings.LOGICAL_TILE_HEIGHT), pygame.SRCALPHA)
+
+    sprite_cache[key] = sprite
+    return sprite
+
+
+def generate_map(pygame):
+    return [Tile(pygame, x, y) for y in range(settings.TILE_COUNT_Y) for x in range(settings.TILE_COUNT_X)]
+
+
+def choose_agent_cells(agents):
+    if len(agents) < 2:
+        return
+
+    middle_y = settings.TILE_COUNT_Y // 2
+    left_x = max(0, min(2, settings.TILE_COUNT_X - 1))
+    right_x = max(0, min(settings.TILE_COUNT_X - 3, settings.TILE_COUNT_X - 1))
+
+    agents[0].cell = (left_x, middle_y)
+    agents[1].cell = (right_x, middle_y)
+
+    agents[0].rotation_deg = 0.0
+    agents[1].rotation_deg = 180.0
+
+
+def is_in_bounds(x, y):
+    return 0 <= x < settings.TILE_COUNT_X and 0 <= y < settings.TILE_COUNT_Y
+
+
+def raycast_visible_cells(agent):
+    cx, cy = agent.cell
+    ox = cx + 0.5
+    oy = cy + 0.5
+
+    half_fov = settings.FOV_DEGREES / 2.0
+    visible = {(cx, cy)}
+
+    for i in range(settings.NUM_VISION_RAYS):
+        t = i / (settings.NUM_VISION_RAYS - 1) if settings.NUM_VISION_RAYS > 1 else 0.5
+        angle_deg = agent.rotation_deg - half_fov + t * settings.FOV_DEGREES
+        angle_rad = math.radians(angle_deg)
+        dx = math.cos(angle_rad)
+        dy = math.sin(angle_rad)
+
+        step = 0.05
+        distance = 0.0
+        while distance <= settings.RENDER_DISTANCE_TILES:
+            sx = ox + dx * distance
+            sy = oy + dy * distance
+            tx = int(math.floor(sx))
+            ty = int(math.floor(sy))
+
+            if not is_in_bounds(tx, ty):
+                break
+
+            visible.add((tx, ty))
+            distance += step
+
+    return visible
+
+
+def build_vision_slice(agent, visible_cells, occupancy, objects_by_cell):
+    size = settings.RENDER_DISTANCE_TILES * 2 + 1
+    center = settings.RENDER_DISTANCE_TILES
+    vision = [[None for _ in range(size)] for _ in range(size)]
+
+    ax, ay = agent.cell
+    for dy in range(-settings.RENDER_DISTANCE_TILES, settings.RENDER_DISTANCE_TILES + 1):
+        for dx in range(-settings.RENDER_DISTANCE_TILES, settings.RENDER_DISTANCE_TILES + 1):
+            wx = ax + dx
+            wy = ay + dy
+            lx = center + dx
+            ly = center + dy
+
+            if not is_in_bounds(wx, wy):
+                vision[ly][lx] = {"in_bounds": False}
+                continue
+
+            is_visible = (wx, wy) in visible_cells
+            object_at_cell = objects_by_cell.get((wx, wy))
+            vision[ly][lx] = {
+                "in_bounds": True,
+                "world": (wx, wy),
+                "visible": is_visible,
+                "occupied_by": occupancy.get((wx, wy)),
+                "object_type": object_at_cell.kind if object_at_cell else None,
+                "object_color": object_at_cell.color_name if object_at_cell else None,
+                "object_concept": object_at_cell.concept if object_at_cell else None,
+                "object_cell": object_at_cell.cell if object_at_cell else None,
+            }
+
+    agent.vision_slice = vision
+
+
+def classify_vision_cells(vision_slice):
+    for row in vision_slice:
+        for cell in row:
+            categories = []
+            if not cell.get("in_bounds", False):
+                categories.append("empty")
+                cell["categories"] = categories
+                cell["catagories"] = categories
+                continue
+
+            has_object = cell.get("object_type") is not None
+            has_agent = cell.get("occupied_by") is not None
+
+            categories.append("full" if has_object or has_agent else "empty")
+
+            obj_type = cell.get("object_type")
+            color_name = cell.get("object_color")
+            if obj_type:
+                categories.append(obj_type)
+            if color_name:
+                categories.append(color_name)
+
+            cell["categories"] = categories
+            cell["catagories"] = categories
+
+
+def draw_agent(pygame, screen, agent):
+    gx, gy = agent.cell
+    tile_x, tile_y = cell_to_screen(gx, gy)
+
+    margin = max(2, VISUAL_TILE_WIDTH // 6)
+    agent_rect = pygame.Rect(
+        tile_x + margin,
+        tile_y + margin,
+        VISUAL_TILE_WIDTH - margin * 2,
+        VISUAL_TILE_HEIGHT - margin * 2,
+    )
+    pygame.draw.rect(screen, agent.color, agent_rect, border_radius=4)
+
+    cx = tile_x + VISUAL_TILE_WIDTH // 2
+    cy = tile_y + VISUAL_TILE_HEIGHT // 2
+    length = max(6, VISUAL_TILE_WIDTH // 2 - margin)
+    ang = math.radians(agent.rotation_deg)
+    ex = int(cx + math.cos(ang) * length)
+    ey = int(cy + math.sin(ang) * length)
+    pygame.draw.line(screen, (255, 255, 255), (cx, cy), (ex, ey), 2)
+
+
+def build_palette_slots(pygame, object_types):
+    slots = []
+    start_x = GRID_LEFT + 12
+    y = settings.ORIGIN_Y + 18
+    for idx, obj_type in enumerate(object_types):
+        x = start_x + idx * (INVENTORY_SLOT_SIZE + INVENTORY_SLOT_GAP)
+        rect = pygame.Rect(x, y, INVENTORY_SLOT_SIZE, INVENTORY_SLOT_SIZE)
+        slots.append({"kind": obj_type, "rect": rect})
+    return slots
+
+
+def get_color_dropdown_geometry(pygame, palette_slots, color_names):
+    if palette_slots:
+        x = palette_slots[-1]["rect"].right + 24
+    else:
+        x = GRID_LEFT + 12
+    y = settings.ORIGIN_Y + 22
+    width = 176
+    row_h = 28
+
+    header_rect = pygame.Rect(x, y, width, row_h)
+    option_rects = {
+        color_name: pygame.Rect(x, y + row_h * (idx + 1), width, row_h)
+        for idx, color_name in enumerate(color_names)
+    }
+    return header_rect, option_rects
+
+
+def draw_color_dropdown(pygame, screen, small_font, palette_slots, color_names, selected_color, dropdown_open):
+    header_rect, option_rects = get_color_dropdown_geometry(pygame, palette_slots, color_names)
+
+    pygame.draw.rect(screen, (36, 41, 50), header_rect, border_radius=7)
+    pygame.draw.rect(screen, (98, 106, 120), header_rect, width=2, border_radius=7)
+
+    label = f"Color: {selected_color.title()}"
+    label_surf = small_font.render(label, True, (224, 231, 242))
+    screen.blit(label_surf, (header_rect.x + 10, header_rect.y + 6))
+
+    swatch = COLOR_RGB[selected_color]
+    pygame.draw.circle(screen, swatch, (header_rect.right - 34, header_rect.centery), 7)
+    pygame.draw.circle(screen, (236, 236, 240), (header_rect.right - 34, header_rect.centery), 7, width=1)
+
+    arrow = "v" if not dropdown_open else "^"
+    arrow_surf = small_font.render(arrow, True, (220, 226, 238))
+    screen.blit(arrow_surf, (header_rect.right - 16, header_rect.y + 6))
+
+    if dropdown_open:
+        for color_name in color_names:
+            rect = option_rects[color_name]
+            bg = (44, 48, 58) if color_name != selected_color else (58, 66, 80)
+            pygame.draw.rect(screen, bg, rect, border_radius=6)
+            pygame.draw.rect(screen, (98, 106, 120), rect, width=1, border_radius=6)
+
+            pygame.draw.circle(screen, COLOR_RGB[color_name], (rect.x + 12, rect.centery), 6)
+            pygame.draw.circle(screen, (236, 236, 240), (rect.x + 12, rect.centery), 6, width=1)
+
+            txt = small_font.render(color_name.title(), True, (224, 231, 242))
+            screen.blit(txt, (rect.x + 24, rect.y + 6))
+
+
+def draw_inventory_bar(
+    pygame,
+    screen,
+    font,
+    small_font,
+    palette_slots,
+    sprite_cache,
+    color_names,
+    selected_color,
+    dropdown_open,
+):
+    bar_rect = pygame.Rect(0, 0, MAP_WIDTH, GRID_TOP)
+    pygame.draw.rect(screen, (14, 17, 22), bar_rect)
+    left = GRID_LEFT - 2
+    right = GRID_LEFT + GRID_PIXEL_WIDTH + 2
+    pygame.draw.line(screen, (68, 78, 92), (left, GRID_TOP - 1), (right, GRID_TOP - 1), 2)
+
+    title = font.render("Object Bar", True, (235, 240, 252))
+    screen.blit(title, (GRID_LEFT + 6, settings.ORIGIN_Y + 2))
+
+    for slot in palette_slots:
+        kind = slot["kind"]
+        rect = slot["rect"]
+        pygame.draw.rect(screen, (36, 41, 50), rect, border_radius=7)
+        pygame.draw.rect(screen, (98, 106, 120), rect, width=2, border_radius=7)
+
+        sprite = get_sprite(pygame, sprite_cache, kind, selected_color)
+        scaled = pygame.transform.scale(sprite, (INVENTORY_SLOT_SIZE - 16, INVENTORY_SLOT_SIZE - 16))
+        sx = rect.x + (rect.width - scaled.get_width()) // 2
+        sy = rect.y + (rect.height - scaled.get_height()) // 2
+        screen.blit(scaled, (sx, sy))
+
+        label = small_font.render(kind.title(), True, (220, 226, 238))
+        label_y = rect.y + rect.height + 6
+        screen.blit(label, (rect.x + 2, label_y))
+
+    draw_color_dropdown(pygame, screen, small_font, palette_slots, color_names, selected_color, dropdown_open)
+
+
+def _format_cell(cell):
+    if cell is None:
+        return "--"
+    return f"({cell[0]},{cell[1]})"
+
+
+def compute_drag_perception(dragging_kind, dragging_color, drag_pos, agents, visible_by_agent, mode):
+    if dragging_kind is None or dragging_color is None:
+        return {
+            "kind": None,
+            "color_name": None,
+            "concept": None,
+            "hover_cell": None,
+            "preview_cell": None,
+            "rows": [],
+            "syntax": "color_object",
+        }
+
+    hover_cell = screen_to_cell(*drag_pos)
+    preview_cell = None
+    if hover_cell is not None and not any(agent.cell == hover_cell for agent in agents):
+        preview_cell = hover_cell
+
+    rows = []
+    for agent in agents:
+        visible = visible_by_agent.get(agent.name, set())
+        sees_object = preview_cell is not None and preview_cell in visible
+
+        if sees_object:
+            if mode == "factored":
+                c_sem = color_key(dragging_color)
+                o_sem = object_key(dragging_kind)
+                if c_sem in agent.language.q_table and o_sem in agent.language.q_table:
+                    c_word = format_word(best_word(agent.language, c_sem))
+                    o_word = format_word(best_word(agent.language, o_sem))
+                    utterance = f"[{c_word}, {o_word}]"
+                else:
+                    utterance = "----"
+            else:
+                concept = concept_key(dragging_kind, dragging_color)
+                if concept in agent.language.q_table:
+                    utterance = format_word(best_word(agent.language, concept))
+                else:
+                    utterance = "----"
+        else:
+            utterance = "----"
+
+        rows.append(
+            {
+                "agent_name": agent.name,
+                "sees_object": sees_object,
+                "utterance": utterance,
+            }
         )
-        self._build_static_map()
-        self.paused = False
-        self.speed_steps_per_s = 120.0
-        self.training_accumulator = 0.0
-        self.flash_tile = None
-        self.flash_timer = 0.0
-        self.selected_event_idx = None
-        self.selected_tile = None
-        self.selected_confidence = 0.0
-        self.selected_confidence_x = 0.0
-        self.selected_confidence_y = 0.0
-        self.selected_col_x = None
-        self.selected_row_y = None
-        self.scroll_offset = 0
 
-    def _format_term(self, term: tuple[int, ...]) -> str:
-        if not term:
-            return "-"
-        return "".join(str(token) for token in term)
+    return {
+        "kind": dragging_kind,
+        "color_name": dragging_color,
+        "concept": concept_key(dragging_kind, dragging_color),
+        "hover_cell": hover_cell,
+        "preview_cell": preview_cell,
+        "rows": rows,
+        "syntax": "color_object",
+    }
 
-    def _visible_rows(self) -> int:
-        return max(1, self.list_rect.height // self.row_height)
 
-    def _set_scroll(self, next_offset: int) -> None:
-        max_scroll = max(0, len(self.trainer.events) - self._visible_rows())
-        self.scroll_offset = max(0, min(max_scroll, next_offset))
+def get_lexicon_panel_layout():
+    panel_x = MAP_WIDTH
+    panel_inner_x = panel_x + settings.PANEL_MARGIN
+    panel_inner_w = settings.PANEL_WIDTH - 2 * settings.PANEL_MARGIN
 
-    def _scroll_by(self, delta: int) -> None:
-        self._set_scroll(self.scroll_offset + delta)
+    section_top = 84
+    gap = 10
+    perception_h = 170
+    bottom_pad = 8
 
-    def _tile_rect(self, tile: int) -> pygame.Rect:
-        x, y = self.env.tile_xy(tile)
-        ox, oy = self.map_origin
-        return pygame.Rect(
-            ox + x * self.cell_size,
-            oy + y * self.cell_size,
-            self.cell_size,
-            self.cell_size,
+    available = SCREEN_HEIGHT - section_top - perception_h - gap - bottom_pad
+    if available < 220:
+        slot_h = max(90, (available - gap) // 2)
+        phrase_h = max(90, available - gap - slot_h)
+    else:
+        slot_h = max(120, min(180, int(available * 0.38)))
+        phrase_h = max(120, available - gap - slot_h)
+
+    slot_rect = (panel_inner_x, section_top, panel_inner_w, slot_h)
+    phrase_rect = (panel_inner_x, section_top + slot_h + gap, panel_inner_w, phrase_h)
+    perception_rect = (panel_inner_x, section_top + slot_h + gap + phrase_h + gap, panel_inner_w, perception_h)
+
+    return {
+        "panel_x": panel_x,
+        "slot_rect": slot_rect,
+        "phrase_rect": phrase_rect,
+        "perception_rect": perception_rect,
+    }
+
+
+def point_in_rect(pos, rect):
+    x, y = pos
+    rx, ry, rw, rh = rect
+    return rx <= x < rx + rw and ry <= y < ry + rh
+
+
+def draw_lexicon_panel(
+    pygame,
+    screen,
+    font,
+    small_font,
+    mode,
+    slot_rows,
+    phrase_rows,
+    metrics,
+    drag_perception,
+    slot_scroll_px,
+    phrase_scroll_px,
+):
+    layout = get_lexicon_panel_layout()
+    panel_x = layout["panel_x"]
+
+    panel_rect = pygame.Rect(panel_x, 0, settings.PANEL_WIDTH, SCREEN_HEIGHT)
+    pygame.draw.rect(screen, (18, 18, 24), panel_rect)
+    pygame.draw.line(screen, (70, 70, 90), (panel_x, 0), (panel_x, SCREEN_HEIGHT), 2)
+
+    title = font.render("Lexicon", True, (235, 235, 245))
+    screen.blit(title, (panel_x + settings.PANEL_MARGIN, 12))
+
+    mode_text = f"Mode: {mode}"
+    metrics_text = (
+        f"Target unique: {metrics.get('target_unique', 'n/a')}  "
+        f"Achieved: {metrics.get('achieved_unique', 'n/a')}"
+    )
+    consensus_text = f"Phrase consensus: {metrics.get('all_phrase_consensus', 'n/a')}"
+
+    screen.blit(small_font.render(mode_text, True, (185, 205, 230)), (panel_x + settings.PANEL_MARGIN, 36))
+    screen.blit(small_font.render(metrics_text, True, (185, 205, 230)), (panel_x + settings.PANEL_MARGIN, 52))
+    screen.blit(small_font.render(consensus_text, True, (185, 205, 230)), (panel_x + settings.PANEL_MARGIN, 68))
+
+    slot_rect = pygame.Rect(*layout["slot_rect"])
+    phrase_rect = pygame.Rect(*layout["phrase_rect"])
+    perception_rect = pygame.Rect(*layout["perception_rect"])
+
+    pygame.draw.rect(screen, (12, 12, 16), slot_rect, border_radius=6)
+    pygame.draw.rect(screen, (12, 12, 16), phrase_rect, border_radius=6)
+    pygame.draw.rect(screen, (12, 12, 16), perception_rect, border_radius=6)
+
+    # Section A: slot lexicon.
+    slot_title = small_font.render("Base Factored Lexicon", True, (185, 205, 230))
+    screen.blit(slot_title, (slot_rect.x + 8, slot_rect.y + 8))
+
+    slot_headers = ["Type", "Semantic", "Adam", "Eve", "Shared"]
+    slot_x = [8, 66, 210, 266, 320]
+    base_y = slot_rect.y + 30
+    for i, header in enumerate(slot_headers):
+        txt = small_font.render(header, True, (166, 186, 210))
+        screen.blit(txt, (slot_rect.x + slot_x[i], base_y))
+
+    slot_rows_area = pygame.Rect(slot_rect.x + 4, slot_rect.y + 52, slot_rect.width - 10, slot_rect.height - 58)
+    slot_row_h = 22
+    slot_content_h = len(slot_rows) * slot_row_h
+    slot_max_scroll = max(0, slot_content_h - slot_rows_area.height)
+    slot_scroll_px = max(0, min(slot_scroll_px, slot_max_scroll))
+
+    clip_prev = screen.get_clip()
+    screen.set_clip(slot_rows_area)
+    row_y = slot_rows_area.y - slot_scroll_px
+
+    if slot_rows:
+        for row in slot_rows:
+            shared = row.get("shared_word", "NO_CONSENSUS")
+            shared_color = (164, 228, 172) if shared != "NO_CONSENSUS" else (235, 156, 156)
+            values = [
+                row.get("slot_type", "-"),
+                row.get("slot_label", row.get("concept_label", "-")),
+                row.get("adam_word", "----"),
+                row.get("eve_word", "----"),
+                shared,
+            ]
+            colors = [(222, 222, 232), (222, 222, 232), (222, 222, 232), (222, 222, 232), shared_color]
+            for i, text in enumerate(values):
+                txt = small_font.render(text, True, colors[i])
+                screen.blit(txt, (slot_rect.x + slot_x[i], row_y))
+            row_y += slot_row_h
+    else:
+        txt = small_font.render("No slot lexicon in holistic mode.", True, (154, 166, 182))
+        screen.blit(txt, (slot_rect.x + 8, row_y))
+
+    screen.set_clip(clip_prev)
+
+    if slot_max_scroll > 0:
+        bar_x = slot_rect.right - 6
+        bar_y = slot_rows_area.y
+        bar_h = slot_rows_area.height
+        pygame.draw.rect(screen, (60, 60, 80), pygame.Rect(bar_x, bar_y, 4, bar_h))
+        thumb_h = max(22, int(bar_h * (slot_rows_area.height / slot_content_h)))
+        thumb_range = bar_h - thumb_h
+        thumb_y = bar_y + int((slot_scroll_px / slot_max_scroll) * thumb_range)
+        pygame.draw.rect(screen, (150, 150, 180), pygame.Rect(bar_x, thumb_y, 4, thumb_h))
+
+    # Section B: composed phrase lexicon.
+    phrase_title = small_font.render("Composed Phrases", True, (185, 205, 230))
+    screen.blit(phrase_title, (phrase_rect.x + 8, phrase_rect.y + 8))
+
+    phrase_headers = ["Phrase", "Adam IDs", "Eve IDs", "Shared IDs", "Step"]
+    phrase_x = [8, 150, 248, 336, 398]
+    phrase_base_y = phrase_rect.y + 30
+    for i, header in enumerate(phrase_headers):
+        txt = small_font.render(header, True, (166, 186, 210))
+        screen.blit(txt, (phrase_rect.x + phrase_x[i], phrase_base_y))
+
+    phrase_rows_area = pygame.Rect(phrase_rect.x + 4, phrase_rect.y + 52, phrase_rect.width - 10, phrase_rect.height - 58)
+    phrase_row_h = 22
+    phrase_content_h = len(phrase_rows) * phrase_row_h
+    phrase_max_scroll = max(0, phrase_content_h - phrase_rows_area.height)
+    phrase_scroll_px = max(0, min(phrase_scroll_px, phrase_max_scroll))
+
+    clip_prev = screen.get_clip()
+    screen.set_clip(phrase_rows_area)
+    row_y = phrase_rows_area.y - phrase_scroll_px
+
+    for row in phrase_rows:
+        shared = row.get("shared_phrase_ids", row.get("shared_word", "NO_CONSENSUS"))
+        shared_color = (164, 228, 172) if shared != "NO_CONSENSUS" else (235, 156, 156)
+        values = [
+            row.get("concept_label", "-"),
+            row.get("adam_phrase_ids", row.get("adam_word", "----")),
+            row.get("eve_phrase_ids", row.get("eve_word", "----")),
+            shared,
+            str(row.get("converged_step", "NONE")),
+        ]
+        colors = [(222, 222, 232), (222, 222, 232), (222, 222, 232), shared_color, (150, 170, 190)]
+        for i, text in enumerate(values):
+            txt = small_font.render(text, True, colors[i])
+            screen.blit(txt, (phrase_rect.x + phrase_x[i], row_y))
+        row_y += phrase_row_h
+
+    screen.set_clip(clip_prev)
+
+    if phrase_max_scroll > 0:
+        bar_x = phrase_rect.right - 6
+        bar_y = phrase_rows_area.y
+        bar_h = phrase_rows_area.height
+        pygame.draw.rect(screen, (60, 60, 80), pygame.Rect(bar_x, bar_y, 4, bar_h))
+        thumb_h = max(22, int(bar_h * (phrase_rows_area.height / phrase_content_h)))
+        thumb_range = bar_h - thumb_h
+        thumb_y = bar_y + int((phrase_scroll_px / phrase_max_scroll) * thumb_range)
+        pygame.draw.rect(screen, (150, 150, 180), pygame.Rect(bar_x, thumb_y, 4, thumb_h))
+
+    # Section C: perception menu.
+    menu_title = small_font.render("Perception Menu (Dragged Object)", True, (185, 205, 230))
+    screen.blit(menu_title, (perception_rect.x + 8, perception_rect.y + 8))
+
+    if drag_perception["kind"] is None:
+        hint = small_font.render("Drag an object from the bar to inspect perception.", True, (154, 166, 182))
+        screen.blit(hint, (perception_rect.x + 8, perception_rect.y + 30))
+        return slot_scroll_px, phrase_scroll_px
+
+    concept_txt = concept_label(drag_perception["kind"], drag_perception["color_name"])
+    hover_text = f"Hover: {_format_cell(drag_perception['hover_cell'])}"
+    preview_text = f"Preview drop: {_format_cell(drag_perception['preview_cell'])}"
+    syntax_text = "Syntax: Color -> Object"
+
+    screen.blit(small_font.render(f"Object: {concept_txt}", True, (222, 222, 232)), (perception_rect.x + 8, perception_rect.y + 30))
+    screen.blit(small_font.render(hover_text, True, (154, 166, 182)), (perception_rect.x + 8, perception_rect.y + 48))
+    screen.blit(small_font.render(preview_text, True, (154, 166, 182)), (perception_rect.x + 8, perception_rect.y + 66))
+    screen.blit(small_font.render(syntax_text, True, (154, 166, 182)), (perception_rect.x + 8, perception_rect.y + 84))
+
+    headers = ["Agent", "Sees", "Utterance"]
+    x_offsets = [8, 96, 162]
+    base_y = perception_rect.y + 108
+    for i, header in enumerate(headers):
+        txt = small_font.render(header, True, (166, 186, 210))
+        screen.blit(txt, (perception_rect.x + x_offsets[i], base_y))
+
+    row_y = base_y + 22
+    for row in drag_perception["rows"]:
+        sees_label = "YES" if row["sees_object"] else "NO"
+        sees_color = (164, 228, 172) if row["sees_object"] else (235, 156, 156)
+
+        screen.blit(small_font.render(row["agent_name"], True, (222, 222, 232)), (perception_rect.x + x_offsets[0], row_y))
+        screen.blit(small_font.render(sees_label, True, sees_color), (perception_rect.x + x_offsets[1], row_y))
+        screen.blit(small_font.render(row["utterance"], True, (222, 222, 232)), (perception_rect.x + x_offsets[2], row_y))
+        row_y += 24
+
+    return slot_scroll_px, phrase_scroll_px
+
+
+def run_training(mode, object_types, color_names, seed, steps, write_logs, run_sweep):
+    rng = random.Random(seed) if seed is not None else random.Random()
+    cfg = TrainingConfig(learning_steps=steps)
+
+    adam_lang = LanguageAgent("Adam")
+    eve_lang = LanguageAgent("Eve")
+
+    results_by_object = {}
+    slot_rows = []
+    phrase_rows = []
+    metrics = {}
+
+    if mode == "holistic":
+        concept_specs = [
+            (object_type, color_name, concept_key(object_type, color_name))
+            for object_type in object_types
+            for color_name in color_names
+        ]
+        concept_types = [concept for _, _, concept in concept_specs]
+
+        initialize_language(adam_lang, concept_types, cfg, rng)
+        initialize_language(eve_lang, concept_types, cfg, rng)
+
+        for object_type, color_name, concept in concept_specs:
+            result = train_language(adam_lang, eve_lang, concept, cfg, rng)
+            results_by_object[concept] = result
+
+            adam_word = format_word(best_word(adam_lang, concept))
+            eve_word = format_word(best_word(eve_lang, concept))
+            shared = adam_word if adam_word == eve_word else "NO_CONSENSUS"
+
+            phrase_rows.append(
+                {
+                    "object_type": object_type,
+                    "color_name": color_name,
+                    "concept": concept,
+                    "concept_label": concept_label(object_type, color_name),
+                    "syntax_order": "color_object",
+                    "adam_phrase_ids": adam_word,
+                    "eve_phrase_ids": eve_word,
+                    "shared_phrase_ids": shared,
+                    "converged_step": result.converged_step,
+                    # Backwards-compatible aliases.
+                    "adam_word": adam_word,
+                    "eve_word": eve_word,
+                    "shared_word": shared,
+                }
+            )
+
+        shared_words = [row["shared_phrase_ids"] for row in phrase_rows if row["shared_phrase_ids"] != "NO_CONSENSUS"]
+        metrics = {
+            "target_unique": len(phrase_rows),
+            "achieved_unique": len(set(shared_words)),
+            "all_phrase_consensus": all(row["shared_phrase_ids"] != "NO_CONSENSUS" for row in phrase_rows),
+            "all_slot_consensus": False,
+        }
+
+    else:
+        color_semantics = [color_key(color_name) for color_name in color_names]
+        object_semantics = [object_key(object_type) for object_type in object_types]
+        initialize_language(adam_lang, color_semantics + object_semantics, cfg, rng)
+        initialize_language(eve_lang, color_semantics + object_semantics, cfg, rng)
+
+        factored = train_factored_language(adam_lang, eve_lang, color_names, object_types, cfg, rng)
+        slot_rows = factored.slot_rows
+        phrase_rows = factored.phrase_rows
+        metrics = factored.metrics
+
+    lexicon_rows = phrase_rows
+
+    log_paths = {}
+    if write_logs:
+        log_paths = write_lexicon_logs(
+            results_by_object=results_by_object,
+            lexicon_rows=lexicon_rows,
+            seed=seed,
+            cfg=cfg,
+            mode=mode,
+            syntax_order="color_object",
+            slot_lexicon=slot_rows,
+            phrase_lexicon=phrase_rows,
+            metrics=metrics,
         )
 
-    def _center_of_tile(self, tile: int) -> tuple[int, int]:
-        rect = self._tile_rect(tile)
-        return rect.centerx, rect.centery
+    sweep_path = None
+    if run_sweep:
+        if mode == "factored" and object_types and color_names:
+            target_semantic = concept_key(object_types[0], color_names[0])
+            sweep_path = sweep_social_pressures(object_type=target_semantic, cfg=cfg)
+        elif mode == "holistic" and object_types and color_names:
+            target_semantic = concept_key(object_types[0], color_names[0])
+            sweep_path = sweep_social_pressures(object_type=target_semantic, cfg=cfg)
 
-    def _step_once(self) -> None:
-        self.trainer.step()
-        self.flash_tile = self.trainer.last_prediction_tile
-        self.flash_timer = self.flash_duration_s
-        if self.trainer.is_complete():
-            self.paused = True
+    return (
+        cfg,
+        adam_lang,
+        eve_lang,
+        results_by_object,
+        slot_rows,
+        phrase_rows,
+        metrics,
+        log_paths,
+        sweep_path,
+    )
 
-    def _toggle_pause(self) -> None:
-        self.paused = not self.paused
 
-    def _set_speed(self, multiplier: float) -> None:
-        self.speed_steps_per_s = max(1.0, min(1200.0, self.speed_steps_per_s * multiplier))
+def run_visualization(mode, slot_rows, phrase_rows, metrics, adam_lang, eve_lang, object_types, color_names):
+    try:
+        import pygame
+    except ModuleNotFoundError:
+        print("pygame is not installed; use --train-only to run headless training.")
+        return
 
-    def _handle_button_action(self, action: str) -> None:
-        if action == "toggle_pause":
-            self._toggle_pause()
-            return
-        if action == "single_step":
-            if self.paused:
-                self._step_once()
-            return
-        if action == "reset":
-            self._reset()
-            return
+    pygame.init()
+    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+    pygame.display.set_caption("HAL - Lexicon Emergence")
+    font = pygame.font.SysFont("Menlo", 16)
+    small_font = pygame.font.SysFont("Menlo", 14)
 
-    def _select_event_at(self, mouse_pos: tuple[int, int]) -> None:
-        if not self.paused or not self.list_rect.collidepoint(mouse_pos):
-            return
-        row = (mouse_pos[1] - self.list_rect.top) // self.row_height
-        idx = self.scroll_offset + row
-        if idx < 0 or idx >= len(self.trainer.events):
-            return
-        self.selected_event_idx = idx
-        event = self.trainer.events[idx]
-        (
-            pred_tile,
-            confidence,
-            confidence_x,
-            confidence_y,
-            _,
-            _,
-        ) = self.trainer.decode_terms(
-            event.x_word,
-            event.y_word,
-            fallback_random=False,
-        )
-        self.selected_tile = pred_tile
-        self.selected_confidence = confidence
-        self.selected_confidence_x = confidence_x
-        self.selected_confidence_y = confidence_y
-        pred_x, pred_y = self.env.tile_xy(pred_tile)
-        self.selected_col_x = pred_x
-        self.selected_row_y = pred_y
+    tiles = generate_map(pygame)
+    sprite_cache = {}
+    palette_slots = build_palette_slots(pygame, object_types)
 
-    def _process_events(self) -> None:
+    adam = WorldAgent("Adam", (180, 70, 70), adam_lang)
+    eve = WorldAgent("Eve", (70, 130, 210), eve_lang)
+    agents = [adam, eve]
+    choose_agent_cells(agents)
+
+    objects_by_cell = {}
+    selected_color = color_names[0] if color_names else "red"
+    color_dropdown_open = False
+    dragging_kind = None
+    dragging_color = None
+    drag_pos = (0, 0)
+
+    slot_scroll_px = 0
+    phrase_scroll_px = 0
+
+    running = True
+    while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                self.running = False
-                return
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_SPACE:
-                    self._toggle_pause()
-                elif event.key == pygame.K_n:
-                    if self.paused:
-                        self._step_once()
-                elif event.key in (pygame.K_PLUS, pygame.K_EQUALS, pygame.K_KP_PLUS):
-                    self._set_speed(1.25)
-                elif event.key in (pygame.K_MINUS, pygame.K_KP_MINUS):
-                    self._set_speed(0.8)
-                elif event.key == pygame.K_UP:
-                    self._scroll_by(-3)
-                elif event.key == pygame.K_DOWN:
-                    self._scroll_by(3)
+                running = False
+            elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                running = False
             elif event.type == pygame.MOUSEWHEEL:
-                self._scroll_by(-event.y * 3)
-            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                pos = event.pos
-                for button in self.buttons:
-                    if button.rect.collidepoint(pos):
-                        self._handle_button_action(button.action)
-                        break
+                mouse_pos = pygame.mouse.get_pos()
+                layout = get_lexicon_panel_layout()
+
+                slot_rows_area = (
+                    layout["slot_rect"][0] + 4,
+                    layout["slot_rect"][1] + 52,
+                    layout["slot_rect"][2] - 10,
+                    layout["slot_rect"][3] - 58,
+                )
+                phrase_rows_area = (
+                    layout["phrase_rect"][0] + 4,
+                    layout["phrase_rect"][1] + 52,
+                    layout["phrase_rect"][2] - 10,
+                    layout["phrase_rect"][3] - 58,
+                )
+
+                if point_in_rect(mouse_pos, slot_rows_area):
+                    slot_scroll_px -= event.y * 24
+                elif point_in_rect(mouse_pos, phrase_rows_area):
+                    phrase_scroll_px -= event.y * 24
                 else:
-                    self._select_event_at(pos)
+                    phrase_scroll_px -= event.y * 24
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                header_rect, option_rects = get_color_dropdown_geometry(pygame, palette_slots, color_names)
 
-    def _draw_button(self, button: Button) -> None:
-        is_pause = button.action == "toggle_pause"
-        label = "Resume" if (is_pause and self.paused) else button.label
-        bg = (69, 86, 108)
-        border = (154, 175, 202)
-        pygame.draw.rect(self.screen, bg, button.rect, border_radius=5)
-        pygame.draw.rect(self.screen, border, button.rect, width=1, border_radius=5)
-        text = self.font.render(label, True, (234, 240, 248))
-        self.screen.blit(text, text.get_rect(center=button.rect.center))
+                if header_rect.collidepoint(event.pos):
+                    color_dropdown_open = not color_dropdown_open
+                    continue
 
-    def _draw_grid(self) -> None:
-        ox, oy = self.map_origin
-        self.screen.blit(self.static_map, (ox, oy))
-        border = pygame.Rect(ox - 1, oy - 1, self.map_px + 2, self.map_px + 2)
-        pygame.draw.rect(self.screen, (115, 127, 143), border, width=1)
+                if color_dropdown_open:
+                    selected = None
+                    for color_name in color_names:
+                        if option_rects[color_name].collidepoint(event.pos):
+                            selected = color_name
+                            break
+                    color_dropdown_open = False
+                    if selected is not None:
+                        selected_color = selected
+                        continue
 
-        if self.selected_col_x is not None:
-            col_rect = pygame.Rect(
-                ox + self.selected_col_x * self.cell_size,
-                oy,
-                self.cell_size,
-                self.map_px,
-            )
-            col_overlay = pygame.Surface((col_rect.width, col_rect.height), pygame.SRCALPHA)
-            col_overlay.fill((68, 195, 214, 55))
-            self.screen.blit(col_overlay, (col_rect.x, col_rect.y))
-            pygame.draw.rect(self.screen, (68, 195, 214), col_rect, width=1)
+                for slot in palette_slots:
+                    if slot["rect"].collidepoint(event.pos):
+                        dragging_kind = slot["kind"]
+                        dragging_color = selected_color
+                        drag_pos = event.pos
+                        break
+            elif event.type == pygame.MOUSEMOTION and dragging_kind is not None:
+                drag_pos = event.pos
+            elif event.type == pygame.MOUSEBUTTONUP and event.button == 1 and dragging_kind is not None:
+                drag_pos = event.pos
+                drop_cell = screen_to_cell(*event.pos)
+                if drop_cell is not None:
+                    occupied_by_agent = any(agent.cell == drop_cell for agent in agents)
+                    if not occupied_by_agent:
+                        concept = concept_key(dragging_kind, dragging_color)
+                        sprite = get_sprite(pygame, sprite_cache, dragging_kind, dragging_color)
+                        objects_by_cell[drop_cell] = WorldObject(
+                            kind=dragging_kind,
+                            color_name=dragging_color,
+                            cell=drop_cell,
+                            concept=concept,
+                            sprite=sprite,
+                        )
+                dragging_kind = None
+                dragging_color = None
 
-        if self.selected_row_y is not None:
-            row_rect = pygame.Rect(
-                ox,
-                oy + self.selected_row_y * self.cell_size,
-                self.map_px,
-                self.cell_size,
-            )
-            row_overlay = pygame.Surface((row_rect.width, row_rect.height), pygame.SRCALPHA)
-            row_overlay.fill((68, 195, 214, 55))
-            self.screen.blit(row_overlay, (row_rect.x, row_rect.y))
-            pygame.draw.rect(self.screen, (68, 195, 214), row_rect, width=1)
-
-        if self.flash_tile is not None and self.flash_timer > 0:
-            rect = self._tile_rect(self.flash_tile)
-            pygame.draw.rect(self.screen, (227, 183, 66), rect)
-
-        if self.selected_tile is not None:
-            rect = self._tile_rect(self.selected_tile)
-            pygame.draw.rect(self.screen, (68, 195, 214), rect, width=2)
-
-        # Agent 1 marker and heading/FOV rays.
-        anchor_tile = self.env.tile_id(self.env.agent1.x, self.env.agent1.y)
-        ax, ay = self._center_of_tile(anchor_tile)
-        pygame.draw.circle(self.screen, (245, 102, 102), (ax, ay), max(2, self.cell_size // 2))
-
-        fov = self.env.current_stage.fov
-        heading = self.env.agent1.heading_deg
-        view_len_px = int(fov.range_tiles * self.cell_size)
-        heading_rad = math.radians(heading)
-        hx = int(ax + math.cos(heading_rad) * view_len_px)
-        hy = int(ay + math.sin(heading_rad) * view_len_px)
-        pygame.draw.line(self.screen, (245, 102, 102), (ax, ay), (hx, hy), width=1)
-
-        half = fov.angle_deg / 2.0
-        for offset in (-half, half):
-            ray_rad = math.radians(heading + offset)
-            rx = int(ax + math.cos(ray_rad) * view_len_px)
-            ry = int(ay + math.sin(ray_rad) * view_len_px)
-            pygame.draw.line(self.screen, (161, 119, 119), (ax, ay), (rx, ry), width=1)
-
-        # Agent 2 marker.
-        agent2_tile = self.env.agent2_tile_id
-        bx, by = self._center_of_tile(agent2_tile)
-        pygame.draw.circle(self.screen, (104, 220, 132), (bx, by), max(2, self.cell_size // 2))
-
-    def _draw_info(self) -> None:
-        panel_bg = (27, 33, 41)
-        panel_border = (92, 103, 119)
-        pygame.draw.rect(self.screen, panel_bg, self.panel_rect, border_radius=6)
-        pygame.draw.rect(self.screen, panel_border, self.panel_rect, width=1, border_radius=6)
-
-        for button in self.buttons:
-            self._draw_button(button)
-
-        visible_count = len(self.env.visible_tiles())
-        covered_count = len(self.trainer.successful_tiles.intersection(set(self.env.visible_tiles())))
-        status = "PAUSED" if self.paused else "TRAINING"
-        complete = "YES" if self.trainer.is_complete() else "NO"
-        selected_word = (
-            (
-                f"{self._format_term(self.trainer.events[self.selected_event_idx].x_word)}|"
-                f"{self._format_term(self.trainer.events[self.selected_event_idx].y_word)}"
-            )
-            if self.selected_event_idx is not None
-            else "-"
+        screen.fill((8, 8, 8))
+        draw_inventory_bar(
+            pygame,
+            screen,
+            font,
+            small_font,
+            palette_slots,
+            sprite_cache,
+            color_names,
+            selected_color,
+            color_dropdown_open,
         )
 
-        lines = [
-            f"Status: {status}",
-            f"Complete: {complete}",
-            f"Steps: {self.trainer.step_count}",
-            f"Speed: {self.speed_steps_per_s:.1f} steps/s",
-            f"Rolling acc (1k): {self.trainer.rolling_accuracy(1000):.3f}",
-            f"Coverage: {covered_count}/{visible_count}",
-            f"Selected terms: {selected_word}",
-            f"Selected conf: {self.selected_confidence:.2f}",
-            f"Selected cX/cY: {self.selected_confidence_x:.2f}/{self.selected_confidence_y:.2f}",
-            "Controls: Space pause, N step, +/- speed",
-        ]
-        y = self.info_rect.top + 4
-        for line in lines:
-            text = self.small_font.render(line, True, (218, 226, 237))
-            self.screen.blit(text, (self.info_rect.left, y))
-            y += 13
+        occupancy_names = {agent.cell: agent.name for agent in agents if agent.cell is not None}
+        occupancy_colors = {agent.cell: agent.color for agent in agents if agent.cell is not None}
 
-    def _draw_event_list(self) -> None:
-        bg = (17, 22, 27)
-        border = (90, 102, 119)
-        pygame.draw.rect(self.screen, bg, self.list_rect, border_radius=4)
-        pygame.draw.rect(self.screen, border, self.list_rect, width=1, border_radius=4)
+        all_visible = set()
+        visible_by_agent = {}
+        for agent in agents:
+            visible_cells = raycast_visible_cells(agent)
+            visible_by_agent[agent.name] = visible_cells
+            all_visible |= visible_cells
+            build_vision_slice(agent, visible_cells, occupancy_names, objects_by_cell)
+            classify_vision_cells(agent.vision_slice)
 
-        rows = self._visible_rows()
-        self._set_scroll(self.scroll_offset)
-        start = self.scroll_offset
-        end = min(len(self.trainer.events), start + rows)
-        y = self.list_rect.top
+        for tile in tiles:
+            cell = (tile.grid_x, tile.grid_y)
+            highlight = (40, 40, 40)
+            if cell in all_visible:
+                highlight = (75, 75, 75)
+            if cell in occupancy_colors:
+                highlight = occupancy_colors[cell]
+            tile.draw(pygame=pygame, screen=screen, fill_color=highlight)
 
-        for idx in range(start, end):
-            event = self.trainer.events[idx]
-            row_rect = pygame.Rect(self.list_rect.left, y, self.list_rect.width, self.row_height)
-            if idx == self.selected_event_idx:
-                pygame.draw.rect(self.screen, (45, 86, 120), row_rect)
-            elif idx % 2 == 0:
-                pygame.draw.rect(self.screen, (21, 27, 34), row_rect)
+        for obj in objects_by_cell.values():
+            obj.draw(pygame=pygame, screen=screen)
 
-            status = "S" if event.success else "F"
-            payload = (
-                f"{event.step:06d}  "
-                f"{self._format_term(event.x_word):<4}|{self._format_term(event.y_word):<4}  "
-                f"{status}  c={event.confidence:.2f}"
+        for agent in agents:
+            draw_agent(pygame, screen, agent)
+
+        draw_color_dropdown(
+            pygame,
+            screen,
+            small_font,
+            palette_slots,
+            color_names,
+            selected_color,
+            color_dropdown_open,
+        )
+
+        if dragging_kind is not None and dragging_color is not None:
+            ghost = pygame.transform.scale(
+                get_sprite(pygame, sprite_cache, dragging_kind, dragging_color),
+                (VISUAL_TILE_WIDTH, VISUAL_TILE_HEIGHT),
             )
-            text = self.small_font.render(payload, True, (214, 224, 236))
-            self.screen.blit(text, (row_rect.left + 6, row_rect.top + 3))
-            y += self.row_height
+            ghost.set_alpha(215)
+            gx = drag_pos[0] - ghost.get_width() // 2
+            gy = drag_pos[1] - ghost.get_height() // 2
+            screen.blit(ghost, (gx, gy))
 
-    def _render(self) -> None:
-        self.screen.fill((10, 13, 17))
-        self._draw_grid()
-        self._draw_info()
-        self._draw_event_list()
+        drag_perception = compute_drag_perception(
+            dragging_kind,
+            dragging_color,
+            drag_pos,
+            agents,
+            visible_by_agent,
+            mode,
+        )
+
+        slot_scroll_px, phrase_scroll_px = draw_lexicon_panel(
+            pygame,
+            screen,
+            font,
+            small_font,
+            mode,
+            slot_rows,
+            phrase_rows,
+            metrics,
+            drag_perception,
+            slot_scroll_px,
+            phrase_scroll_px,
+        )
+
         pygame.display.flip()
 
-    def run(self) -> None:
-        while self.running:
-            dt = self.clock.tick(60) / 1000.0
-            self._process_events()
-
-            if not self.paused:
-                self.training_accumulator += dt * self.speed_steps_per_s
-                steps = min(200, int(self.training_accumulator))
-                if steps > 0:
-                    self.training_accumulator -= steps
-                    for _ in range(steps):
-                        self._step_once()
-                        if self.paused:
-                            break
-
-            if self.flash_timer > 0.0:
-                self.flash_timer = max(0.0, self.flash_timer - dt)
-                if self.flash_timer <= 0.0:
-                    self.flash_tile = None
-
-            self._render()
-
-        pygame.quit()
+    pygame.quit()
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="HAL Part 1 pygame prototype")
-    parser.add_argument("--seed", type=int, default=7, help="Random seed")
-    args = parser.parse_args()
-    HalPygameApp(seed=args.seed).run()
+def parse_object_types(raw):
+    if raw is None:
+        return DEFAULT_OBJECT_TYPES
+    object_types = [item.strip().lower() for item in raw.split(",") if item.strip()]
+    if not object_types:
+        return DEFAULT_OBJECT_TYPES
+
+    return list(dict.fromkeys(object_types))
+
+
+def parse_color_names(raw):
+    if raw is None:
+        return DEFAULT_COLOR_NAMES
+    color_names = [item.strip().lower() for item in raw.split(",") if item.strip()]
+    color_names = [item for item in color_names if item in COLOR_RGB]
+    if not color_names:
+        return DEFAULT_COLOR_NAMES
+
+    return list(dict.fromkeys(color_names))
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="HAL language emergence demo")
+    parser.add_argument(
+        "--mode",
+        choices=["factored", "holistic"],
+        default=DEFAULT_MODE,
+        help="Training mode: factored (slot words) or holistic (one word per concept)",
+    )
+    parser.add_argument(
+        "--objects",
+        default=",".join(DEFAULT_OBJECT_TYPES),
+        help="Comma-separated object list for lexicon training",
+    )
+    parser.add_argument(
+        "--colors",
+        default=",".join(DEFAULT_COLOR_NAMES),
+        help="Comma-separated colors for concept generation",
+    )
+    parser.add_argument("--seed", type=int, default=None, help="RNG seed for reproducible training")
+    parser.add_argument(
+        "--steps",
+        type=int,
+        default=settings.LEARNING_STEPS,
+        help="Training steps to run",
+    )
+    parser.add_argument("--train-only", action="store_true", help="Run headless training + logs, no pygame")
+    parser.add_argument("--no-log-files", action="store_true", help="Disable writing artifacts/*.json and *.txt")
+    parser.add_argument(
+        "--sweep",
+        action="store_true",
+        help="Run social-pressure sweep and write artifacts/sweep_soft_pressures_debug.json",
+    )
+    return parser.parse_args()
+
+
+def main():
+    args = parse_args()
+    mode = args.mode
+    object_types = parse_object_types(args.objects)
+    color_names = parse_color_names(args.colors)
+
+    (
+        _,
+        adam_lang,
+        eve_lang,
+        _,
+        slot_rows,
+        phrase_rows,
+        metrics,
+        log_paths,
+        sweep_path,
+    ) = run_training(
+        mode=mode,
+        object_types=object_types,
+        color_names=color_names,
+        seed=args.seed,
+        steps=args.steps,
+        write_logs=not args.no_log_files,
+        run_sweep=args.sweep,
+    )
+
+    if args.train_only:
+        print("HAL Lexicon")
+        print("-" * 44)
+        print(f"Mode: {mode}")
+        print(
+            f"Metrics: target_unique={metrics.get('target_unique', 'n/a')} "
+            f"achieved_unique={metrics.get('achieved_unique', 'n/a')} "
+            f"phrase_consensus={metrics.get('all_phrase_consensus', 'n/a')}"
+        )
+
+        if slot_rows:
+            print("\nBase Factored Lexicon")
+            print("-" * 44)
+            for row in slot_rows:
+                print(
+                    f"{row['slot_type']:<7} {row['slot_label']:<12} "
+                    f"Adam:{row['adam_word']} Eve:{row['eve_word']} Shared:{row['shared_word']}"
+                )
+
+        print("\nComposed Phrases")
+        print("-" * 44)
+        for row in phrase_rows:
+            print(
+                f"{row['concept_label']:<20} Adam:{row.get('adam_phrase_ids', row.get('adam_word', '----')):<14} "
+                f"Eve:{row.get('eve_phrase_ids', row.get('eve_word', '----')):<14} "
+                f"Shared:{row.get('shared_phrase_ids', row.get('shared_word', 'NO_CONSENSUS'))}"
+            )
+
+        if log_paths:
+            print("\nWrote training logs:")
+            for key, value in sorted(log_paths.items()):
+                print(f"- {key}: {value}")
+
+        if sweep_path:
+            print(f"\nWrote sweep report: {sweep_path}")
+        return
+
+    palette_object_types = [obj for obj in object_types if obj in DEFAULT_OBJECT_TYPES]
+    if not palette_object_types:
+        palette_object_types = DEFAULT_OBJECT_TYPES
+
+    run_visualization(
+        mode=mode,
+        slot_rows=slot_rows,
+        phrase_rows=phrase_rows,
+        metrics=metrics,
+        adam_lang=adam_lang,
+        eve_lang=eve_lang,
+        object_types=palette_object_types,
+        color_names=color_names,
+    )
+    sys.exit()
 
 
 if __name__ == "__main__":

@@ -1,586 +1,740 @@
+"""Headless language training for HAL agents."""
+
 from __future__ import annotations
 
-import math
-import random
-from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Optional
+from pathlib import Path
+import json
+import random
 
-TileId = int
-Word = tuple[int, ...]
-
-
-@dataclass(frozen=True)
-class GridConfig:
-    width: int = 128
-    height: int = 128
-
-
-@dataclass(frozen=True)
-class FOVConfig:
-    angle_deg: float = 90.0
-    range_tiles: float = 10.0
-
-
-@dataclass(frozen=True)
-class StageConfig:
-    anchor_xy: tuple[int, int]
-    anchor_heading_deg: float
-    fov: FOVConfig
+import settings
 
 
 @dataclass
-class AgentState:
-    x: int
-    y: int
-    heading_deg: float
+class LanguageAgent:
+    name: str
+    q_table: dict[str, list[float]] = field(default_factory=dict)
+    word_bias: dict[str, list[float]] = field(default_factory=dict)
+    current_word: int | None = None
 
 
 @dataclass
-class InteractionEvent:
-    step: int
-    word: Word
-    x_word: Word
-    y_word: Word
-    success: bool
-    confidence: float
-    confidence_x: float
-    confidence_y: float
+class TrainingConfig:
+    word_space_size: int = settings.WORD_SPACE_SIZE
+    learning_steps: int = settings.LEARNING_STEPS
+    noise_scale: float = settings.NOISE_SCALE
+    min_noise_scale: float = settings.MIN_NOISE_SCALE
+    wta_gain: float = settings.WTA_GAIN
+    wta_decay: float = settings.WTA_DECAY
+    comm_lr: float = settings.COMM_LR
+    social_lr: float = settings.SOCIAL_LR
+    self_penalty_lr: float = settings.SELF_PENALTY_LR
+    consensus_streak_target: int = settings.CONSENSUS_STREAK_TARGET
 
 
 @dataclass
-class WordStats:
-    successes: int = 0
-    failures: int = 0
-    uses: int = 0
-
-    def smoothed_success_rate(self) -> float:
-        return (self.successes + 1.0) / (self.uses + 2.0)
+class TrainingResult:
+    history_lines: list[str]
+    debug_rows: list[dict]
+    final_word: str
+    converged_step: int | None
 
 
 @dataclass
-class NamingTables:
-    speaker_x_inventory: dict[int, dict[Word, WordStats]] = field(default_factory=dict)
-    speaker_y_inventory: dict[int, dict[Word, WordStats]] = field(default_factory=dict)
-    listener_x_assoc: dict[Word, dict[int, int]] = field(default_factory=dict)
-    listener_y_assoc: dict[Word, dict[int, int]] = field(default_factory=dict)
+class FactoredTrainingResult:
+    slot_rows: list[dict]
+    phrase_rows: list[dict]
+    metrics: dict
+    debug_rows: list[dict]
+    converged_step: int | None
+    history_lines: list[str]
 
 
-def _angle_diff_deg(lhs: float, rhs: float) -> float:
-    return (lhs - rhs + 180.0) % 360.0 - 180.0
+def color_key(color_name: str) -> str:
+    return f"color:{color_name}"
 
 
-class HalEnv:
-    """Discrete environment for Stage-0 HAL training."""
+def object_key(object_name: str) -> str:
+    return f"object:{object_name}"
 
-    def __init__(
-        self,
-        grid_config: Optional[GridConfig] = None,
-        stages: Optional[list[StageConfig]] = None,
-        seed: int = 0,
-    ) -> None:
-        self.grid = grid_config or GridConfig()
-        self.rng = random.Random(seed)
 
-        if stages:
-            self.stages = stages
+def format_word(word_int: int | None) -> str:
+    if word_int is None:
+        return "----"
+    return f"{word_int:04d}"
+
+
+def clamp_word(value: int, word_space_size: int) -> int:
+    return max(0, min(word_space_size - 1, value))
+
+
+def initialize_language(
+    agent: LanguageAgent,
+    object_types: list[str],
+    cfg: TrainingConfig,
+    rng: random.Random | None = None,
+) -> None:
+    rng = rng or random
+    for obj_type in object_types:
+        agent.q_table[obj_type] = [0.0] * cfg.word_space_size
+        agent.word_bias[obj_type] = [rng.uniform(-0.02, 0.02) for _ in range(cfg.word_space_size)]
+
+        seed_word = rng.randint(0, cfg.word_space_size - 1)
+        agent.q_table[obj_type][seed_word] = 0.5
+        if agent.current_word is None:
+            agent.current_word = seed_word
+
+
+def _effective_noise(cfg: TrainingConfig, step: int) -> float:
+    if cfg.learning_steps <= 1:
+        return cfg.min_noise_scale
+    anneal = 1.0 - (step / (cfg.learning_steps - 1))
+    return max(cfg.min_noise_scale, cfg.noise_scale * anneal)
+
+
+def recognize_word(
+    agent: LanguageAgent,
+    obj_type: str,
+    noise_scale: float,
+    rng: random.Random | None = None,
+) -> int:
+    rng = rng or random
+    q_values = agent.q_table[obj_type]
+    biases = agent.word_bias[obj_type]
+
+    best_idx = 0
+    best_score = float("-inf")
+    for idx in range(len(q_values)):
+        score = q_values[idx] + biases[idx] + rng.uniform(-noise_scale, noise_scale)
+        if score > best_score:
+            best_score = score
+            best_idx = idx
+    return best_idx
+
+
+def best_word(agent: LanguageAgent, obj_type: str) -> int:
+    q_values = agent.q_table[obj_type]
+    biases = agent.word_bias[obj_type]
+    best_idx = 0
+    best_score = float("-inf")
+    for idx in range(len(q_values)):
+        score = q_values[idx] + biases[idx]
+        if score > best_score:
+            best_score = score
+            best_idx = idx
+    return best_idx
+
+
+def apply_winner_takes_all(
+    agent: LanguageAgent,
+    obj_type: str,
+    winner_idx: int,
+    cfg: TrainingConfig,
+) -> None:
+    q_values = agent.q_table[obj_type]
+    decay = 1.0 - cfg.wta_decay
+    for idx in range(len(q_values)):
+        q_values[idx] *= decay
+    q_values[winner_idx] += cfg.wta_gain
+
+
+def language_alignment_step(
+    adam: LanguageAgent,
+    eve: LanguageAgent,
+    obj_type: str,
+    cfg: TrainingConfig,
+    step: int,
+    rng: random.Random | None = None,
+) -> tuple[int, int, float, int, float]:
+    rng = rng or random
+    noise = _effective_noise(cfg, step)
+
+    adam_word = recognize_word(adam, obj_type, noise, rng)
+    eve_word = recognize_word(eve, obj_type, noise, rng)
+
+    apply_winner_takes_all(adam, obj_type, adam_word, cfg)
+    apply_winner_takes_all(eve, obj_type, eve_word, cfg)
+
+    distance = abs(adam_word - eve_word)
+    closeness = 1.0 - (distance / (cfg.word_space_size - 1))
+    reward = (2.0 * closeness) - 1.0
+
+    adam_q = adam.q_table[obj_type]
+    eve_q = eve.q_table[obj_type]
+
+    adam_q[adam_word] += cfg.comm_lr * reward
+    eve_q[eve_word] += cfg.comm_lr * reward
+
+    if adam_word != eve_word:
+        disagreement = 1.0 - closeness
+
+        # On disagreement, pull both agents toward a shared midpoint token.
+        midpoint = clamp_word((adam_word + eve_word) // 2, cfg.word_space_size)
+        midpoint_boost = cfg.social_lr * (0.5 + disagreement)
+        adam_q[midpoint] += midpoint_boost
+        eve_q[midpoint] += midpoint_boost
+
+        adam_q[adam_word] -= cfg.self_penalty_lr * disagreement
+        eve_q[eve_word] -= cfg.self_penalty_lr * disagreement
+
+        # Weak local smoothing around each agent's own current token.
+        adam_q[clamp_word(adam_word + 1, cfg.word_space_size)] += 0.125 * disagreement
+        adam_q[clamp_word(adam_word - 1, cfg.word_space_size)] += 0.125 * disagreement
+        eve_q[clamp_word(eve_word + 1, cfg.word_space_size)] += 0.125 * disagreement
+        eve_q[clamp_word(eve_word - 1, cfg.word_space_size)] += 0.125 * disagreement
+
+    adam.current_word = adam_word
+    eve.current_word = eve_word
+    return adam_word, eve_word, reward, distance, noise
+
+
+def train_language(
+    adam: LanguageAgent,
+    eve: LanguageAgent,
+    obj_type: str,
+    cfg: TrainingConfig,
+    rng: random.Random | None = None,
+) -> TrainingResult:
+    rng = rng or random
+    history_lines: list[str] = []
+    debug_rows: list[dict] = []
+
+    consensus_streak = 0
+    converged_step: int | None = None
+
+    for step in range(cfg.learning_steps):
+        adam_word, eve_word, reward, distance, noise = language_alignment_step(
+            adam,
+            eve,
+            obj_type,
+            cfg,
+            step,
+            rng,
+        )
+        if distance == 0:
+            consensus_streak += 1
         else:
-            center = (self.grid.width // 2, self.grid.height // 2)
-            self.stages = [
-                StageConfig(anchor_xy=center, anchor_heading_deg=0.0, fov=FOVConfig())
-            ]
+            consensus_streak = 0
 
-        self.current_stage_index = 0
-        self._visible_cache: dict[int, list[TileId]] = {}
-        self._visible_set_cache: dict[int, set[TileId]] = {}
-
-        stage0 = self.current_stage
-        self.agent1 = AgentState(
-            x=stage0.anchor_xy[0],
-            y=stage0.anchor_xy[1],
-            heading_deg=stage0.anchor_heading_deg,
+        history_lines.append(
+            f"{step:03d}  Adam:{format_word(adam_word)}  Eve:{format_word(eve_word)}  "
+            f"d={distance:4d}  r={reward:+.3f}  n={noise:.4f}  streak={consensus_streak:02d}"
+        )
+        debug_rows.append(
+            {
+                "step": step,
+                "adam_word": adam_word,
+                "eve_word": eve_word,
+                "distance": distance,
+                "reward": reward,
+                "noise": noise,
+                "consensus_streak": consensus_streak,
+            }
         )
 
-        visible = self.visible_tiles()
-        if not visible:
-            raise ValueError("Current stage contains no visible tiles.")
+        if consensus_streak >= cfg.consensus_streak_target and step > 15:
+            converged_step = step
+            break
 
-        start_tile = self.rng.choice(visible)
-        start_x, start_y = self.tile_xy(start_tile)
-        self.agent2 = AgentState(
-            x=start_x,
-            y=start_y,
-            heading_deg=self.rng.choice([0.0, 90.0, 180.0, 270.0]),
-        )
+    # Final consensus check is deterministic (no noise/random tie-breaking).
+    adam_best = best_word(adam, obj_type)
+    eve_best = best_word(eve, obj_type)
+    adam.current_word = adam_best
+    eve.current_word = eve_best
 
-    @property
-    def current_stage(self) -> StageConfig:
-        return self.stages[self.current_stage_index]
+    final_word = format_word(adam_best) if adam_best == eve_best else "NO_CONSENSUS"
 
-    @property
-    def agent2_tile_id(self) -> TileId:
-        return self.tile_id(self.agent2.x, self.agent2.y)
+    history_lines.append("-" * 72)
+    history_lines.append(f"Final shared word for {obj_type}: {final_word}")
+    if converged_step is not None:
+        history_lines.append(f"Converged by step: {converged_step}")
+    else:
+        history_lines.append("Converged by step: NONE")
 
-    def set_stage(self, index: int) -> None:
-        if index < 0 or index >= len(self.stages):
-            raise IndexError(f"Invalid stage index {index}.")
-        self.current_stage_index = index
-        stage = self.current_stage
-        self.agent1 = AgentState(
-            x=stage.anchor_xy[0],
-            y=stage.anchor_xy[1],
-            heading_deg=stage.anchor_heading_deg,
-        )
-        if self.agent2_tile_id not in self.visible_tile_set():
-            self._reset_agent2_position()
+    return TrainingResult(
+        history_lines=history_lines,
+        debug_rows=debug_rows,
+        final_word=final_word,
+        converged_step=converged_step,
+    )
 
-    def tile_id(self, x: int, y: int) -> TileId:
-        if not self.is_in_bounds(x, y):
-            raise ValueError(f"Out-of-bounds tile coordinates ({x}, {y}).")
-        return y * self.grid.width + x
 
-    def tile_xy(self, tile_id: TileId) -> tuple[int, int]:
-        if tile_id < 0 or tile_id >= self.grid.width * self.grid.height:
-            raise ValueError(f"Out-of-bounds tile id {tile_id}.")
-        y, x = divmod(tile_id, self.grid.width)
-        return x, y
+def _find_nearest_free_index(preferred_idx: int, blocked: set[int], word_space_size: int) -> int:
+    if preferred_idx not in blocked:
+        return preferred_idx
 
-    def relative_coords(
-        self,
-        tile_id: TileId,
-        stage: Optional[StageConfig] = None,
-    ) -> tuple[int, int]:
-        stage = stage or self.current_stage
-        x, y = self.tile_xy(tile_id)
-        ax, ay = stage.anchor_xy
-        return x - ax, y - ay
+    for radius in range(1, word_space_size):
+        upper = preferred_idx + radius
+        if upper < word_space_size and upper not in blocked:
+            return upper
 
-    def tile_from_relative(
-        self,
-        x_rel: int,
-        y_rel: int,
-        stage: Optional[StageConfig] = None,
-    ) -> Optional[TileId]:
-        stage = stage or self.current_stage
-        ax, ay = stage.anchor_xy
-        x = ax + x_rel
-        y = ay + y_rel
-        if not self.is_in_bounds(x, y):
-            return None
-        return self.tile_id(x, y)
+        lower = preferred_idx - radius
+        if lower >= 0 and lower not in blocked:
+            return lower
 
-    def is_in_bounds(self, x: int, y: int) -> bool:
-        return 0 <= x < self.grid.width and 0 <= y < self.grid.height
+    return preferred_idx
 
-    def visible_tiles(self, stage: Optional[StageConfig] = None) -> list[TileId]:
-        if stage is not None:
-            return self._compute_visible_tiles(stage)
 
-        idx = self.current_stage_index
-        if idx not in self._visible_cache:
-            tiles = self._compute_visible_tiles(self.current_stage)
-            self._visible_cache[idx] = tiles
-            self._visible_set_cache[idx] = set(tiles)
-        return self._visible_cache[idx]
+def _push_semantic_index(
+    agent: LanguageAgent,
+    semantic_key: str,
+    from_idx: int,
+    to_idx: int,
+    boost: float,
+) -> None:
+    q_values = agent.q_table[semantic_key]
+    q_values[from_idx] -= 0.6 * boost
+    q_values[to_idx] += boost
 
-    def visible_tile_set(self) -> set[TileId]:
-        _ = self.visible_tiles()
-        return self._visible_set_cache[self.current_stage_index]
 
-    def _compute_visible_tiles(self, stage: StageConfig) -> list[TileId]:
-        tiles: list[TileId] = []
-        for y in range(self.grid.height):
-            for x in range(self.grid.width):
-                tile = self.tile_id(x, y)
-                if self.is_in_fov(tile, stage):
-                    tiles.append(tile)
-        return tiles
+def _enforce_domain_uniqueness(
+    agent: LanguageAgent,
+    semantic_keys: list[str],
+    cfg: TrainingConfig,
+    strength: float,
+) -> None:
+    occupied: set[int] = set()
+    for semantic in semantic_keys:
+        idx = best_word(agent, semantic)
+        if idx in occupied:
+            new_idx = _find_nearest_free_index(idx, occupied, cfg.word_space_size)
+            _push_semantic_index(agent, semantic, idx, new_idx, strength)
+            idx = new_idx
+        occupied.add(idx)
 
-    def is_in_fov(self, tile_id: TileId, stage: Optional[StageConfig] = None) -> bool:
-        stage = stage or self.current_stage
-        x, y = self.tile_xy(tile_id)
-        ax, ay = stage.anchor_xy
-        dx = x - ax
-        dy = y - ay
 
-        distance = math.hypot(dx, dy)
-        if distance > stage.fov.range_tiles + 1e-9:
+def _enforce_cross_domain_uniqueness(
+    agent: LanguageAgent,
+    primary_keys: list[str],
+    secondary_keys: list[str],
+    cfg: TrainingConfig,
+    strength: float,
+) -> None:
+    occupied: set[int] = set(best_word(agent, key) for key in primary_keys)
+    for semantic in secondary_keys:
+        idx = best_word(agent, semantic)
+        if idx in occupied:
+            new_idx = _find_nearest_free_index(idx, occupied, cfg.word_space_size)
+            _push_semantic_index(agent, semantic, idx, new_idx, strength)
+            idx = new_idx
+        occupied.add(idx)
+
+
+def _all_slot_consensus(adam: LanguageAgent, eve: LanguageAgent, semantic_keys: list[str]) -> bool:
+    return all(best_word(adam, key) == best_word(eve, key) for key in semantic_keys)
+
+
+def _all_phrase_consensus(
+    adam: LanguageAgent,
+    eve: LanguageAgent,
+    color_names: list[str],
+    object_types: list[str],
+) -> bool:
+    for color_name in color_names:
+        c_key = color_key(color_name)
+        if best_word(adam, c_key) != best_word(eve, c_key):
             return False
-        if distance <= 1e-12:
-            return True
 
-        bearing = math.degrees(math.atan2(dy, dx))
-        half_angle = stage.fov.angle_deg / 2.0
-        angle_delta = abs(_angle_diff_deg(bearing, stage.anchor_heading_deg))
-        return angle_delta <= half_angle + 1e-9
-
-    def _reset_agent2_position(self) -> None:
-        visible = self.visible_tiles()
-        tile = self.rng.choice(visible)
-        x, y = self.tile_xy(tile)
-        self.agent2.x = x
-        self.agent2.y = y
-        self.agent2.heading_deg = self.rng.choice([0.0, 90.0, 180.0, 270.0])
-
-    def sample_agent2_move(self) -> None:
-        """Random constrained walk inside current visible set."""
-        current_heading = self.agent2.heading_deg
-        moves = [
-            (1, 0, 0.0),
-            (0, 1, 90.0),
-            (-1, 0, 180.0),
-            (0, -1, 270.0),
-            (0, 0, current_heading),
-        ]
-
-        candidates: list[tuple[int, int, float]] = []
-        visible = self.visible_tile_set()
-        for dx, dy, heading in moves:
-            nx = self.agent2.x + dx
-            ny = self.agent2.y + dy
-            if not self.is_in_bounds(nx, ny):
-                continue
-            tile = self.tile_id(nx, ny)
-            if tile in visible:
-                candidates.append((nx, ny, heading))
-
-        if not candidates:
-            return
-
-        nx, ny, heading = self.rng.choice(candidates)
-        self.agent2.x = nx
-        self.agent2.y = ny
-        self.agent2.heading_deg = heading
-
-
-class StageScheduler(ABC):
-    @abstractmethod
-    def maybe_advance(self, trainer: "NamingGameTrainer") -> bool:
-        raise NotImplementedError
-
-
-class NoOpScheduler(StageScheduler):
-    def maybe_advance(self, trainer: "NamingGameTrainer") -> bool:
-        _ = trainer
-        return False
-
-
-class NamingGameTrainer:
-    def __init__(
-        self,
-        env: HalEnv,
-        alphabet_size: int = 8,
-        max_word_len: int = 4,
-        energy_penalty: float = 0.01,
-        seed: int = 0,
-        scheduler: Optional[StageScheduler] = None,
-    ) -> None:
-        if alphabet_size <= 0:
-            raise ValueError("alphabet_size must be > 0.")
-        if max_word_len <= 0:
-            raise ValueError("max_word_len must be > 0.")
-
-        self.env = env
-        self.alphabet_size = alphabet_size
-        self.max_word_len = max_word_len
-        self.energy_penalty = energy_penalty
-        self.pause_token = alphabet_size
-        self.rng = random.Random(seed)
-        self.scheduler = scheduler or NoOpScheduler()
-
-        self.tables = NamingTables()
-        self.events: list[InteractionEvent] = []
-        self.history_success: list[bool] = []
-        self.successful_tiles: set[TileId] = set()
-
-        self.step_count = 0
-        self.last_prediction_tile: Optional[TileId] = None
-        self.last_target_tile: Optional[TileId] = None
-
-    def _generate_word(self) -> Word:
-        length = self.rng.randint(1, self.max_word_len)
-        return tuple(self.rng.randrange(self.alphabet_size) for _ in range(length))
-
-    def _invent_word(self, inventory: dict[Word, WordStats]) -> Word:
-        for _ in range(256):
-            candidate = self._generate_word()
-            if candidate not in inventory:
-                return candidate
-
-        # Dense fallback in the rare event of repeated collisions.
-        for length in range(1, self.max_word_len + 1):
-            limit = self.alphabet_size**length
-            for value in range(limit):
-                digits = [0] * length
-                carry = value
-                for idx in range(length - 1, -1, -1):
-                    digits[idx] = carry % self.alphabet_size
-                    carry //= self.alphabet_size
-                candidate = tuple(digits)
-                if candidate not in inventory:
-                    return candidate
-        raise RuntimeError("Unable to invent a new word.")
-
-    def _word_utility(self, word: Word, stats: WordStats) -> float:
-        return stats.smoothed_success_rate() - (self.energy_penalty * len(word))
-
-    def _speak_axis(self, value: int, table: dict[int, dict[Word, WordStats]]) -> Word:
-        inventory = table.setdefault(value, {})
-        if not inventory:
-            invented = self._invent_word(inventory)
-            inventory[invented] = WordStats()
-            return invented
-
-        ranked = sorted(
-            inventory.items(),
-            key=lambda item: (
-                -self._word_utility(item[0], item[1]),
-                len(item[0]),
-                item[0],
-            ),
-        )
-        return ranked[0][0]
-
-    def _visible_rel_pairs(self) -> list[tuple[int, int]]:
-        return [self.env.relative_coords(tile) for tile in self.env.visible_tiles()]
-
-    def _visible_axis_values(self) -> tuple[list[int], list[int]]:
-        pairs = self._visible_rel_pairs()
-        x_vals = sorted({pair[0] for pair in pairs})
-        y_vals = sorted({pair[1] for pair in pairs})
-        return x_vals, y_vals
-
-    def pack_utterance(self, x_word: Word, y_word: Word) -> Word:
-        return x_word + (self.pause_token,) + y_word
-
-    def unpack_utterance(self, utterance: Word) -> tuple[Word, Word]:
-        if self.pause_token not in utterance:
-            return utterance, tuple()
-        split = utterance.index(self.pause_token)
-        return utterance[:split], utterance[split + 1 :]
-
-    def speak_terms(self, tile_id: TileId) -> tuple[Word, Word]:
-        x_rel, y_rel = self.env.relative_coords(tile_id)
-        x_word = self._speak_axis(x_rel, self.tables.speaker_x_inventory)
-        y_word = self._speak_axis(y_rel, self.tables.speaker_y_inventory)
-        return x_word, y_word
-
-    def speak(self, tile_id: TileId) -> Word:
-        x_word, y_word = self.speak_terms(tile_id)
-        return self.pack_utterance(x_word, y_word)
-
-    def _decode_axis(
-        self,
-        word: Word,
-        assoc_table: dict[Word, dict[int, int]],
-        fallback_values: list[int],
-        fallback_random: bool,
-    ) -> tuple[int, float]:
-        assoc = assoc_table.get(word)
-        if assoc:
-            max_count = max(assoc.values())
-            best_values = [value for value, count in assoc.items() if count == max_count]
-            best_value = min(best_values)
-            total = sum(assoc.values())
-            confidence = (max_count / total) if total > 0 else 0.0
-            return best_value, confidence
-
-        if not fallback_values:
-            raise RuntimeError("No axis fallback values available.")
-        value = self.rng.choice(fallback_values) if fallback_random else fallback_values[0]
-        return value, 0.0
-
-    def decode_terms(
-        self,
-        x_word: Word,
-        y_word: Word,
-        fallback_random: bool = True,
-    ) -> tuple[TileId, float, float, float, int, int]:
-        x_values, y_values = self._visible_axis_values()
-        pred_x_rel, confidence_x = self._decode_axis(
-            x_word,
-            self.tables.listener_x_assoc,
-            x_values,
-            fallback_random,
-        )
-        pred_y_rel, confidence_y = self._decode_axis(
-            y_word,
-            self.tables.listener_y_assoc,
-            y_values,
-            fallback_random,
-        )
-
-        pred_tile = self.env.tile_from_relative(pred_x_rel, pred_y_rel)
-        if pred_tile is None:
-            visible = self.env.visible_tiles()
-            if not visible:
-                raise RuntimeError("No visible tiles available for fallback decode.")
-            pred_tile = self.rng.choice(visible) if fallback_random else visible[0]
-
-        confidence = (confidence_x + confidence_y) / 2.0
-        return pred_tile, confidence, confidence_x, confidence_y, pred_x_rel, pred_y_rel
-
-    def decode_word(self, word: Word, fallback_random: bool = True) -> tuple[TileId, float]:
-        x_word, y_word = self.unpack_utterance(word)
-        pred_tile, confidence, _, _, _, _ = self.decode_terms(
-            x_word,
-            y_word,
-            fallback_random=fallback_random,
-        )
-        return pred_tile, confidence
-
-    def listen(
-        self,
-        word_or_x_word: Word,
-        y_word: Optional[Word] = None,
-    ) -> tuple[TileId, float]:
-        if y_word is None:
-            return self.decode_word(word_or_x_word, fallback_random=True)
-        pred_tile, confidence, _, _, _, _ = self.decode_terms(
-            word_or_x_word,
-            y_word,
-            fallback_random=True,
-        )
-        return pred_tile, confidence
-
-    def _reinforce_listener(
-        self,
-        table: dict[Word, dict[int, int]],
-        word: Word,
-        value: int,
-    ) -> None:
-        assoc = table.setdefault(word, {})
-        assoc[value] = assoc.get(value, 0) + 1
-
-    def _update_axis(
-        self,
-        true_value: int,
-        pred_value: int,
-        word: Word,
-        speaker_table: dict[int, dict[Word, WordStats]],
-        listener_table: dict[Word, dict[int, int]],
-    ) -> bool:
-        inventory = speaker_table.setdefault(true_value, {})
-        stats = inventory.setdefault(word, WordStats())
-        stats.uses += 1
-
-        success = true_value == pred_value
-        if success:
-            stats.successes += 1
-            for other in [candidate for candidate in inventory.keys() if candidate != word]:
-                del inventory[other]
-        else:
-            stats.failures += 1
-
-        self._reinforce_listener(listener_table, word, true_value)
-        return success
-
-    def update_terms(
-        self,
-        tile_id: TileId,
-        x_word: Word,
-        y_word: Word,
-        pred_tile_id: TileId,
-        pred_x_rel: int,
-        pred_y_rel: int,
-    ) -> bool:
-        true_x_rel, true_y_rel = self.env.relative_coords(tile_id)
-
-        x_success = self._update_axis(
-            true_value=true_x_rel,
-            pred_value=pred_x_rel,
-            word=x_word,
-            speaker_table=self.tables.speaker_x_inventory,
-            listener_table=self.tables.listener_x_assoc,
-        )
-        y_success = self._update_axis(
-            true_value=true_y_rel,
-            pred_value=pred_y_rel,
-            word=y_word,
-            speaker_table=self.tables.speaker_y_inventory,
-            listener_table=self.tables.listener_y_assoc,
-        )
-
-        success = x_success and y_success and (tile_id == pred_tile_id)
-        if success:
-            self.successful_tiles.add(tile_id)
-
-        self.history_success.append(success)
-        return success
-
-    def update(self, tile_id: TileId, word: Word, pred_tile_id: TileId) -> bool:
-        x_word, y_word = self.unpack_utterance(word)
-        pred_x_rel, pred_y_rel = self.env.relative_coords(pred_tile_id)
-        return self.update_terms(
-            tile_id=tile_id,
-            x_word=x_word,
-            y_word=y_word,
-            pred_tile_id=pred_tile_id,
-            pred_x_rel=pred_x_rel,
-            pred_y_rel=pred_y_rel,
-        )
-
-    def rolling_accuracy(self, window: int = 1000) -> float:
-        if not self.history_success:
-            return 0.0
-        if window <= 0 or window >= len(self.history_success):
-            sample = self.history_success
-        else:
-            sample = self.history_success[-window:]
-        return sum(sample) / len(sample)
-
-    def coverage_fraction(self) -> float:
-        visible = set(self.env.visible_tiles())
-        if not visible:
-            return 0.0
-        covered = len(visible.intersection(self.successful_tiles))
-        return covered / len(visible)
-
-    def is_complete(self) -> bool:
-        visible = set(self.env.visible_tiles())
-        if not visible:
+    for object_type in object_types:
+        o_key = object_key(object_type)
+        if best_word(adam, o_key) != best_word(eve, o_key):
             return False
-        coverage_done = visible.issubset(self.successful_tiles)
-        return coverage_done and self.rolling_accuracy(window=1000) >= 0.95
 
-    def step(self) -> InteractionEvent:
-        target_tile = self.env.agent2_tile_id
-        x_word, y_word = self.speak_terms(target_tile)
-        utterance = self.pack_utterance(x_word, y_word)
+    return True
 
-        (
-            pred_tile,
-            confidence,
-            confidence_x,
-            confidence_y,
-            pred_x_rel,
-            pred_y_rel,
-        ) = self.decode_terms(x_word, y_word, fallback_random=True)
 
-        success = self.update_terms(
-            tile_id=target_tile,
-            x_word=x_word,
-            y_word=y_word,
-            pred_tile_id=pred_tile,
-            pred_x_rel=pred_x_rel,
-            pred_y_rel=pred_y_rel,
+def train_factored_language(
+    adam: LanguageAgent,
+    eve: LanguageAgent,
+    color_names: list[str],
+    object_types: list[str],
+    cfg: TrainingConfig,
+    rng: random.Random | None = None,
+) -> FactoredTrainingResult:
+    rng = rng or random
+
+    color_semantics = [color_key(color) for color in color_names]
+    object_semantics = [object_key(obj) for obj in object_types]
+    all_semantics = color_semantics + object_semantics
+
+    concept_specs = [
+        (color, obj, color_key(color), object_key(obj))
+        for color in color_names
+        for obj in object_types
+    ]
+
+    debug_rows: list[dict] = []
+    history_lines: list[str] = []
+    consensus_streak = 0
+    converged_step: int | None = None
+
+    for step in range(cfg.learning_steps):
+        color_name, object_type, color_sem, object_sem = rng.choice(concept_specs)
+
+        adam_color, eve_color, reward_color, distance_color, noise_color = language_alignment_step(
+            adam, eve, color_sem, cfg, step, rng
+        )
+        adam_object, eve_object, reward_object, distance_object, noise_object = language_alignment_step(
+            adam, eve, object_sem, cfg, step, rng
         )
 
-        event = InteractionEvent(
-            step=self.step_count,
-            word=utterance,
-            x_word=x_word,
-            y_word=y_word,
-            success=success,
-            confidence=confidence,
-            confidence_x=confidence_x,
-            confidence_y=confidence_y,
-        )
-        self.events.append(event)
-        self.last_prediction_tile = pred_tile
-        self.last_target_tile = target_tile
-        self.step_count += 1
+        for agent in (adam, eve):
+            _enforce_domain_uniqueness(agent, color_semantics, cfg, strength=1.35)
+            _enforce_domain_uniqueness(agent, object_semantics, cfg, strength=1.35)
+            _enforce_cross_domain_uniqueness(agent, color_semantics, object_semantics, cfg, strength=0.8)
 
-        self.scheduler.maybe_advance(self)
-        self.env.sample_agent2_move()
-        return event
+        slot_consensus = _all_slot_consensus(adam, eve, all_semantics)
+        phrase_consensus = _all_phrase_consensus(adam, eve, color_names, object_types)
+        if slot_consensus and phrase_consensus:
+            consensus_streak += 1
+        else:
+            consensus_streak = 0
+
+        debug_rows.append(
+            {
+                "step": step,
+                "color": color_name,
+                "object": object_type,
+                "adam_color_word": adam_color,
+                "eve_color_word": eve_color,
+                "adam_object_word": adam_object,
+                "eve_object_word": eve_object,
+                "color_distance": distance_color,
+                "object_distance": distance_object,
+                "color_reward": reward_color,
+                "object_reward": reward_object,
+                "color_noise": noise_color,
+                "object_noise": noise_object,
+                "slot_consensus": slot_consensus,
+                "phrase_consensus": phrase_consensus,
+                "consensus_streak": consensus_streak,
+            }
+        )
+
+        history_lines.append(
+            f"{step:03d}  {color_name}/{object_type}  "
+            f"A:[{format_word(adam_color)},{format_word(adam_object)}]  "
+            f"E:[{format_word(eve_color)},{format_word(eve_object)}]  "
+            f"slot={int(slot_consensus)} phrase={int(phrase_consensus)} streak={consensus_streak:02d}"
+        )
+
+        if consensus_streak >= cfg.consensus_streak_target and step > 15:
+            converged_step = step
+            break
+
+    slot_rows: list[dict] = []
+    for color_name in color_names:
+        semantic = color_key(color_name)
+        adam_id = format_word(best_word(adam, semantic))
+        eve_id = format_word(best_word(eve, semantic))
+        shared = adam_id if adam_id == eve_id else "NO_CONSENSUS"
+        slot_rows.append(
+            {
+                "slot_type": "color",
+                "slot_label": color_name.title(),
+                "semantic_key": semantic,
+                "concept_label": f"Color:{color_name.title()}",
+                "adam_word": adam_id,
+                "eve_word": eve_id,
+                "shared_word": shared,
+                "converged_step": converged_step,
+            }
+        )
+
+    for object_type in object_types:
+        semantic = object_key(object_type)
+        adam_id = format_word(best_word(adam, semantic))
+        eve_id = format_word(best_word(eve, semantic))
+        shared = adam_id if adam_id == eve_id else "NO_CONSENSUS"
+        slot_rows.append(
+            {
+                "slot_type": "object",
+                "slot_label": object_type.title(),
+                "semantic_key": semantic,
+                "concept_label": f"Object:{object_type.title()}",
+                "adam_word": adam_id,
+                "eve_word": eve_id,
+                "shared_word": shared,
+                "converged_step": converged_step,
+            }
+        )
+
+    phrase_rows: list[dict] = []
+    for color_name in color_names:
+        c_sem = color_key(color_name)
+        for object_type in object_types:
+            o_sem = object_key(object_type)
+
+            adam_c = format_word(best_word(adam, c_sem))
+            adam_o = format_word(best_word(adam, o_sem))
+            eve_c = format_word(best_word(eve, c_sem))
+            eve_o = format_word(best_word(eve, o_sem))
+
+            adam_phrase = f"[{adam_c}, {adam_o}]"
+            eve_phrase = f"[{eve_c}, {eve_o}]"
+            shared_phrase = adam_phrase if adam_c == eve_c and adam_o == eve_o else "NO_CONSENSUS"
+
+            phrase_rows.append(
+                {
+                    "object_type": object_type,
+                    "color_name": color_name,
+                    "concept": f"{color_name}_{object_type}",
+                    "concept_label": f"{color_name.title()} {object_type.title()}",
+                    "syntax_order": "color_object",
+                    "adam_phrase_ids": adam_phrase,
+                    "eve_phrase_ids": eve_phrase,
+                    "shared_phrase_ids": shared_phrase,
+                    "converged_step": converged_step,
+                }
+            )
+
+    shared_slot_words = [row["shared_word"] for row in slot_rows if row["shared_word"] != "NO_CONSENSUS"]
+    target_unique = len(color_names) + len(object_types)
+    achieved_unique = len(set(shared_slot_words))
+    all_phrase_consensus = all(row["shared_phrase_ids"] != "NO_CONSENSUS" for row in phrase_rows)
+    all_slot_consensus = all(row["shared_word"] != "NO_CONSENSUS" for row in slot_rows)
+
+    metrics = {
+        "target_unique": target_unique,
+        "achieved_unique": achieved_unique,
+        "all_phrase_consensus": all_phrase_consensus,
+        "all_slot_consensus": all_slot_consensus,
+        "exact_target": achieved_unique == target_unique,
+        "converged_step": converged_step,
+    }
+
+    history_lines.append("-" * 72)
+    history_lines.append(
+        "Factored summary: "
+        f"target_unique={target_unique} achieved_unique={achieved_unique} "
+        f"phrase_consensus={all_phrase_consensus}"
+    )
+
+    return FactoredTrainingResult(
+        slot_rows=slot_rows,
+        phrase_rows=phrase_rows,
+        metrics=metrics,
+        debug_rows=debug_rows,
+        converged_step=converged_step,
+        history_lines=history_lines,
+    )
+
+
+def write_training_logs(
+    result: TrainingResult,
+    obj_type: str,
+    seed: int | None,
+    cfg: TrainingConfig,
+    artifacts_dir: str = settings.ARTIFACTS_DIR,
+) -> dict[str, str]:
+    out_dir = Path(artifacts_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    repro_steps_path = out_dir / f"repro_{cfg.learning_steps}.json"
+    repro_print_json_path = out_dir / "repro_print.json"
+    repro_print_txt_path = out_dir / "repro_print.txt"
+
+    payload = {
+        "object_type": obj_type,
+        "seed": seed,
+        "config": {
+            "word_space_size": cfg.word_space_size,
+            "learning_steps": cfg.learning_steps,
+            "noise_scale": cfg.noise_scale,
+            "min_noise_scale": cfg.min_noise_scale,
+            "wta_gain": cfg.wta_gain,
+            "wta_decay": cfg.wta_decay,
+            "comm_lr": cfg.comm_lr,
+            "social_lr": cfg.social_lr,
+            "self_penalty_lr": cfg.self_penalty_lr,
+            "consensus_streak_target": cfg.consensus_streak_target,
+        },
+        "final_word": result.final_word,
+        "converged_step": result.converged_step,
+        "rows": result.debug_rows,
+    }
+
+    repro_steps_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    repro_print_json_path.write_text(
+        json.dumps(
+            {
+                "object_type": obj_type,
+                "final_word": result.final_word,
+                "converged_step": result.converged_step,
+                "lines": result.history_lines,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    repro_print_txt_path.write_text("\n".join(result.history_lines) + "\n", encoding="utf-8")
+
+    return {
+        "repro_steps_json": str(repro_steps_path),
+        "repro_print_json": str(repro_print_json_path),
+        "repro_print_txt": str(repro_print_txt_path),
+    }
+
+
+def write_lexicon_logs(
+    results_by_object: dict[str, TrainingResult] | None,
+    lexicon_rows: list[dict],
+    seed: int | None,
+    cfg: TrainingConfig,
+    artifacts_dir: str = settings.ARTIFACTS_DIR,
+    mode: str = "holistic",
+    syntax_order: str = "color_object",
+    slot_lexicon: list[dict] | None = None,
+    phrase_lexicon: list[dict] | None = None,
+    metrics: dict | None = None,
+) -> dict[str, str]:
+    out_dir = Path(artifacts_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    repro_steps_path = out_dir / f"repro_{cfg.learning_steps}.json"
+    repro_print_json_path = out_dir / "repro_print.json"
+    repro_print_txt_path = out_dir / "repro_print.txt"
+
+    slot_lexicon = slot_lexicon or []
+    phrase_lexicon = phrase_lexicon or []
+    metrics = metrics or {}
+    results_by_object = results_by_object or {}
+
+    payload = {
+        "seed": seed,
+        "mode": mode,
+        "syntax_order": syntax_order,
+        "config": {
+            "word_space_size": cfg.word_space_size,
+            "learning_steps": cfg.learning_steps,
+            "noise_scale": cfg.noise_scale,
+            "min_noise_scale": cfg.min_noise_scale,
+            "wta_gain": cfg.wta_gain,
+            "wta_decay": cfg.wta_decay,
+            "comm_lr": cfg.comm_lr,
+            "social_lr": cfg.social_lr,
+            "self_penalty_lr": cfg.self_penalty_lr,
+            "consensus_streak_target": cfg.consensus_streak_target,
+        },
+        "metrics": metrics,
+        "slot_lexicon": slot_lexicon,
+        "phrase_lexicon": phrase_lexicon,
+        # Backwards-compatible alias.
+        "lexicon": lexicon_rows,
+        "objects": {
+            obj: {
+                "final_word": result.final_word,
+                "converged_step": result.converged_step,
+                "rows": result.debug_rows,
+            }
+            for obj, result in results_by_object.items()
+        },
+    }
+    repro_steps_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    print_lines = ["HAL Lexicon", "-" * 44, f"Mode: {mode}", f"Syntax: {syntax_order}"]
+    if metrics:
+        print_lines.append(
+            "Metrics: "
+            f"target_unique={metrics.get('target_unique', 'n/a')} "
+            f"achieved_unique={metrics.get('achieved_unique', 'n/a')} "
+            f"phrase_consensus={metrics.get('all_phrase_consensus', 'n/a')}"
+        )
+
+    if slot_lexicon:
+        print_lines.append("Base Factored Lexicon")
+        print_lines.append("-" * 44)
+        for row in slot_lexicon:
+            print_lines.append(
+                f"{row.get('slot_type', '?'):<7} {row.get('slot_label', '?'):<12} "
+                f"Adam:{row.get('adam_word', '----')} Eve:{row.get('eve_word', '----')} "
+                f"Shared:{row.get('shared_word', 'NO_CONSENSUS')}"
+            )
+
+    section_rows = phrase_lexicon if phrase_lexicon else lexicon_rows
+    if section_rows:
+        print_lines.append("Composed Phrases")
+        print_lines.append("-" * 44)
+        for row in section_rows:
+            concept_name = row.get("concept_label", row.get("object_type", "concept"))
+            adam_text = row.get("adam_phrase_ids", row.get("adam_word", "----"))
+            eve_text = row.get("eve_phrase_ids", row.get("eve_word", "----"))
+            shared_text = row.get("shared_phrase_ids", row.get("shared_word", "NO_CONSENSUS"))
+            print_lines.append(
+                f"{concept_name:<20} Adam:{adam_text:<14} Eve:{eve_text:<14} Shared:{shared_text}"
+            )
+
+    repro_print_json_path.write_text(
+        json.dumps(
+            {
+                "seed": seed,
+                "mode": mode,
+                "syntax_order": syntax_order,
+                "metrics": metrics,
+                "slot_lexicon": slot_lexicon,
+                "phrase_lexicon": phrase_lexicon,
+                "lexicon": lexicon_rows,
+                "lines": print_lines,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    repro_print_txt_path.write_text("\n".join(print_lines) + "\n", encoding="utf-8")
+
+    return {
+        "repro_steps_json": str(repro_steps_path),
+        "repro_print_json": str(repro_print_json_path),
+        "repro_print_txt": str(repro_print_txt_path),
+    }
+
+
+def sweep_social_pressures(
+    object_type: str = "apple",
+    seeds: int = 24,
+    social_values: list[float] | None = None,
+    cfg: TrainingConfig | None = None,
+    artifacts_dir: str = settings.ARTIFACTS_DIR,
+) -> str:
+    cfg = cfg or TrainingConfig()
+    social_values = social_values or [0.25, 0.45, 0.7, 0.95, 1.15, 1.4]
+
+    summary = []
+    for social_lr in social_values:
+        converged = 0
+        final_consensus = 0
+        steps_to_converge: list[int] = []
+
+        for seed in range(seeds):
+            rng = random.Random(seed)
+            run_cfg = TrainingConfig(**{**cfg.__dict__, "social_lr": social_lr})
+            adam = LanguageAgent("Adam")
+            eve = LanguageAgent("Eve")
+            initialize_language(adam, [object_type], run_cfg, rng)
+            initialize_language(eve, [object_type], run_cfg, rng)
+            result = train_language(adam, eve, object_type, run_cfg, rng)
+
+            if result.converged_step is not None:
+                converged += 1
+                steps_to_converge.append(result.converged_step)
+            if result.final_word != "NO_CONSENSUS":
+                final_consensus += 1
+
+        avg_step = (sum(steps_to_converge) / len(steps_to_converge)) if steps_to_converge else None
+        summary.append(
+            {
+                "social_lr": social_lr,
+                "runs": seeds,
+                "convergence_rate": converged / seeds,
+                "final_consensus_rate": final_consensus / seeds,
+                "avg_converged_step": avg_step,
+            }
+        )
+
+    out_dir = Path(artifacts_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / "sweep_soft_pressures_debug.json"
+    out_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    return str(out_path)

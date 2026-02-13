@@ -1,0 +1,44 @@
+[
+  {
+    "social_lr": 0.25,
+    "runs": 24,
+    "convergence_rate": 0.3333333333333333,
+    "final_consensus_rate": 0.3333333333333333,
+    "avg_converged_step": 16.0
+  },
+  {
+    "social_lr": 0.45,
+    "runs": 24,
+    "convergence_rate": 0.5,
+    "final_consensus_rate": 0.5,
+    "avg_converged_step": 16.0
+  },
+  {
+    "social_lr": 0.7,
+    "runs": 24,
+    "convergence_rate": 0.7916666666666666,
+    "final_consensus_rate": 0.7916666666666666,
+    "avg_converged_step": 18.473684210526315
+  },
+  {
+    "social_lr": 0.95,
+    "runs": 24,
+    "convergence_rate": 1.0,
+    "final_consensus_rate": 1.0,
+    "avg_converged_step": 18.041666666666668
+  },
+  {
+    "social_lr": 1.15,
+    "runs": 24,
+    "convergence_rate": 1.0,
+    "final_consensus_rate": 1.0,
+    "avg_converged_step": 23.375
+  },
+  {
+    "social_lr": 1.4,
+    "runs": 24,
+    "convergence_rate": 1.0,
+    "final_consensus_rate": 1.0,
+    "avg_converged_step": 16.0
+  }
+]
