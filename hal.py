@@ -65,6 +65,25 @@ class BacktraceResult:
     notes: str
 
 
+@dataclass
+class CommandTrainingConfig:
+    word_space_size: int = settings.WORD_SPACE_SIZE
+    episodes: int = settings.COMMAND_PRETRAIN_EPISODES
+    epsilon: float = settings.COMMAND_PRETRAIN_EPSILON
+    learning_rate: float = settings.COMMAND_PRETRAIN_LR
+    trailing_window: int = 200
+
+
+@dataclass
+class CommandTrainingResult:
+    come_token: int
+    leave_token: int
+    eve_action_q: dict[int, dict[str, float]]
+    accuracy: float
+    episodes: int
+    history_rows: list[dict]
+
+
 def color_key(color_name: str) -> str:
     return f"color:{color_name}"
 
@@ -514,6 +533,89 @@ def backtrace_factored_phrase(
     )
 
 
+def initialize_hidden_command_mapping(
+    cfg: CommandTrainingConfig,
+    rng: random.Random | None = None,
+) -> tuple[int, int]:
+    rng = rng or random
+    come_token = rng.randint(0, cfg.word_space_size - 1)
+    leave_token = rng.randint(0, cfg.word_space_size - 1)
+    while leave_token == come_token:
+        leave_token = rng.randint(0, cfg.word_space_size - 1)
+    return come_token, leave_token
+
+
+def _policy_action(eve_action_q: dict[int, dict[str, float]], token: int) -> str:
+    row = eve_action_q[token]
+    return "approach" if row["approach"] >= row["avoid"] else "avoid"
+
+
+def train_command_grounding(
+    cfg: CommandTrainingConfig,
+    come_token: int,
+    leave_token: int,
+    rng: random.Random | None = None,
+) -> CommandTrainingResult:
+    rng = rng or random
+    actions = ("approach", "avoid")
+    eve_action_q: dict[int, dict[str, float]] = {
+        come_token: {"approach": 0.0, "avoid": 0.0},
+        leave_token: {"approach": 0.0, "avoid": 0.0},
+    }
+    history_rows: list[dict] = []
+
+    for episode in range(cfg.episodes):
+        token = rng.choice([come_token, leave_token])
+        intent = "come" if token == come_token else "leave"
+
+        if rng.random() < cfg.epsilon:
+            chosen_action = rng.choice(actions)
+            explore = True
+        else:
+            chosen_action = _policy_action(eve_action_q, token)
+            explore = False
+
+        final_in_los = chosen_action == "approach"
+        desired_in_los = intent == "come"
+        reward = 1.0 if final_in_los == desired_in_los else -1.0
+
+        old_q = eve_action_q[token][chosen_action]
+        eve_action_q[token][chosen_action] = old_q + cfg.learning_rate * (reward - old_q)
+
+        policy_action = _policy_action(eve_action_q, token)
+        policy_correct = (policy_action == "approach" and desired_in_los) or (
+            policy_action == "avoid" and not desired_in_los
+        )
+
+        history_rows.append(
+            {
+                "episode": episode,
+                "token": token,
+                "intent": intent,
+                "chosen_action": chosen_action,
+                "policy_action": policy_action,
+                "explore": explore,
+                "reward": reward,
+                "q_approach": eve_action_q[token]["approach"],
+                "q_avoid": eve_action_q[token]["avoid"],
+                "policy_correct": policy_correct,
+            }
+        )
+
+    window = max(1, min(cfg.trailing_window, len(history_rows)))
+    recent = history_rows[-window:]
+    accuracy = sum(1 for row in recent if row["policy_correct"]) / len(recent)
+
+    return CommandTrainingResult(
+        come_token=come_token,
+        leave_token=leave_token,
+        eve_action_q=eve_action_q,
+        accuracy=accuracy,
+        episodes=cfg.episodes,
+        history_rows=history_rows,
+    )
+
+
 def train_factored_language(
     adam: LanguageAgent,
     eve: LanguageAgent,
@@ -789,6 +891,8 @@ def write_lexicon_logs(
     metrics: dict | None = None,
     seen_pairs: list[str] | None = None,
     holdout_pairs: list[str] | None = None,
+    command_tokens: dict | None = None,
+    command_training: dict | None = None,
 ) -> dict[str, str]:
     out_dir = Path(artifacts_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -802,6 +906,8 @@ def write_lexicon_logs(
     metrics = metrics or {}
     seen_pairs = seen_pairs or []
     holdout_pairs = holdout_pairs or []
+    command_tokens = command_tokens or {}
+    command_training = command_training or {}
     results_by_object = results_by_object or {}
 
     payload = {
@@ -823,6 +929,8 @@ def write_lexicon_logs(
         "metrics": metrics,
         "seen_pairs": seen_pairs,
         "holdout_pairs": holdout_pairs,
+        "command_tokens": command_tokens,
+        "command_training": command_training,
         "slot_lexicon": slot_lexicon,
         "phrase_lexicon": phrase_lexicon,
         # Backwards-compatible alias.
@@ -850,6 +958,18 @@ def write_lexicon_logs(
         print_lines.append(f"Holdouts: trained={len(seen_pairs)} heldout={len(holdout_pairs)}")
         if holdout_pairs:
             print_lines.append("Compositional backtrace can decode held-out combinations.")
+    if command_tokens:
+        print_lines.append(
+            "Command tokens: "
+            f"A={format_word(command_tokens.get('come_token'))} "
+            f"B={format_word(command_tokens.get('leave_token'))}"
+        )
+    if command_training:
+        print_lines.append(
+            "Command training: "
+            f"episodes={command_training.get('episodes', 'n/a')} "
+            f"accuracy={command_training.get('accuracy', 'n/a')}"
+        )
 
     if slot_lexicon:
         print_lines.append("Base Factored Lexicon")
@@ -884,6 +1004,8 @@ def write_lexicon_logs(
                 "metrics": metrics,
                 "seen_pairs": seen_pairs,
                 "holdout_pairs": holdout_pairs,
+                "command_tokens": command_tokens,
+                "command_training": command_training,
                 "slot_lexicon": slot_lexicon,
                 "phrase_lexicon": phrase_lexicon,
                 "lexicon": lexicon_rows,

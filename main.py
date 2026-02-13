@@ -5,6 +5,7 @@ import sys
 
 import settings
 from hal import (
+    CommandTrainingConfig,
     LanguageAgent,
     TrainingConfig,
     backtrace_factored_phrase,
@@ -13,12 +14,15 @@ from hal import (
     color_key,
     format_word,
     initialize_language,
+    initialize_hidden_command_mapping,
     object_key,
     sweep_social_pressures,
+    train_command_grounding,
     train_factored_language,
     train_language,
     write_lexicon_logs,
 )
+from navigation import compute_visible_cells, select_reachable_target
 
 VISUAL_TILE_WIDTH = settings.LOGICAL_TILE_WIDTH * settings.VISUAL_SCALE
 VISUAL_TILE_HEIGHT = settings.LOGICAL_TILE_HEIGHT * settings.VISUAL_SCALE
@@ -243,35 +247,15 @@ def is_in_bounds(x, y):
 
 
 def raycast_visible_cells(agent):
-    cx, cy = agent.cell
-    ox = cx + 0.5
-    oy = cy + 0.5
-
-    half_fov = settings.FOV_DEGREES / 2.0
-    visible = {(cx, cy)}
-
-    for i in range(settings.NUM_VISION_RAYS):
-        t = i / (settings.NUM_VISION_RAYS - 1) if settings.NUM_VISION_RAYS > 1 else 0.5
-        angle_deg = agent.rotation_deg - half_fov + t * settings.FOV_DEGREES
-        angle_rad = math.radians(angle_deg)
-        dx = math.cos(angle_rad)
-        dy = math.sin(angle_rad)
-
-        step = 0.05
-        distance = 0.0
-        while distance <= settings.RENDER_DISTANCE_TILES:
-            sx = ox + dx * distance
-            sy = oy + dy * distance
-            tx = int(math.floor(sx))
-            ty = int(math.floor(sy))
-
-            if not is_in_bounds(tx, ty):
-                break
-
-            visible.add((tx, ty))
-            distance += step
-
-    return visible
+    return compute_visible_cells(
+        origin_cell=agent.cell,
+        rotation_deg=agent.rotation_deg,
+        render_distance_tiles=settings.RENDER_DISTANCE_TILES,
+        fov_degrees=settings.FOV_DEGREES,
+        num_vision_rays=settings.NUM_VISION_RAYS,
+        width=settings.TILE_COUNT_X,
+        height=settings.TILE_COUNT_Y,
+    )
 
 
 def build_vision_slice(agent, visible_cells, occupancy, objects_by_cell):
@@ -353,6 +337,144 @@ def draw_agent(pygame, screen, agent):
     ex = int(cx + math.cos(ang) * length)
     ey = int(cy + math.sin(ang) * length)
     pygame.draw.line(screen, (255, 255, 255), (cx, cy), (ex, ey), 2)
+
+
+def draw_speech_bubble(pygame, screen, small_font, text, anchor_x, anchor_y, fill=(242, 246, 252), fg=(22, 26, 34)):
+    if not text:
+        return
+
+    pad_x = 7
+    pad_y = 4
+    text_surf = small_font.render(text, True, fg)
+    bubble_w = text_surf.get_width() + pad_x * 2
+    bubble_h = text_surf.get_height() + pad_y * 2
+    bubble_x = anchor_x - bubble_w // 2
+    bubble_y = anchor_y - bubble_h - 10
+    bubble_rect = pygame.Rect(bubble_x, bubble_y, bubble_w, bubble_h)
+
+    pygame.draw.rect(screen, fill, bubble_rect, border_radius=7)
+    pygame.draw.rect(screen, (82, 92, 110), bubble_rect, width=1, border_radius=7)
+    tip = [(anchor_x - 5, bubble_rect.bottom), (anchor_x + 5, bubble_rect.bottom), (anchor_x, anchor_y - 3)]
+    pygame.draw.polygon(screen, fill, tip)
+    pygame.draw.polygon(screen, (82, 92, 110), tip, width=1)
+    screen.blit(text_surf, (bubble_rect.x + pad_x, bubble_rect.y + pad_y))
+
+
+def _decode_eve_command_action(command_state, token):
+    row = command_state["eve_action_q"].get(token)
+    if not row:
+        return "approach"
+    return "approach" if row.get("approach", 0.0) >= row.get("avoid", 0.0) else "avoid"
+
+
+def _build_blocked_cells(objects_by_cell, adam_cell, eve_cell):
+    blocked = set(objects_by_cell.keys())
+    blocked.add(adam_cell)
+    blocked.discard(eve_cell)
+    return blocked
+
+
+def _all_grid_cells():
+    return [
+        (x, y)
+        for y in range(settings.TILE_COUNT_Y)
+        for x in range(settings.TILE_COUNT_X)
+    ]
+
+
+def _choose_eve_target_path(action, eve_cell, adam_cell, adam_visible, blocked_cells):
+    if action == "approach":
+        candidates = [cell for cell in adam_visible if cell != adam_cell and cell not in blocked_cells]
+    else:
+        candidates = [cell for cell in _all_grid_cells() if cell not in adam_visible and cell not in blocked_cells]
+
+    return select_reachable_target(
+        start=eve_cell,
+        candidates=candidates,
+        blocked=blocked_cells,
+        width=settings.TILE_COUNT_X,
+        height=settings.TILE_COUNT_Y,
+        tie_break="nearest",
+    )
+
+
+def _finalize_command_feedback(command_state, eve_in_los):
+    desired_in_los = command_state.get("current_intent") == "come"
+    reward = 1 if eve_in_los == desired_in_los else -1
+
+    command_state["last_reward"] = reward
+    command_state["last_visibility"] = "in_los" if eve_in_los else "out_los"
+    command_state["last_outcome"] = "match" if reward > 0 else "mismatch"
+    command_state["feedback_text"] = "GOOD" if reward > 0 else "BAD"
+    command_state["feedback_timer"] = settings.FEEDBACK_BUBBLE_FRAMES
+    command_state["active_path"] = []
+    command_state["path_steps"] = 0
+    command_state["current_intent"] = None
+    command_state["current_action"] = None
+
+
+def _start_command_execution(command_state, token, adam, eve, adam_visible, objects_by_cell):
+    command_state["spoken_token"] = token
+    command_state["spoken_text"] = format_word(token)
+    command_state["speech_timer"] = settings.SPEECH_BUBBLE_FRAMES
+    command_state["current_intent"] = "come" if token == command_state["come_token"] else "leave"
+    command_state["current_action"] = _decode_eve_command_action(command_state, token)
+    command_state["path_steps"] = 0
+
+    blocked_cells = _build_blocked_cells(objects_by_cell, adam.cell, eve.cell)
+    _, path = _choose_eve_target_path(
+        command_state["current_action"],
+        eve.cell,
+        adam.cell,
+        adam_visible,
+        blocked_cells,
+    )
+
+    if path and len(path) > 1:
+        command_state["active_path"] = path[1:]
+    else:
+        command_state["active_path"] = []
+        _finalize_command_feedback(command_state, eve.cell in adam_visible)
+
+
+def update_command_state(command_state, adam, eve, adam_visible, objects_by_cell, rng):
+    command_state["frame"] += 1
+
+    if command_state["speech_timer"] > 0:
+        command_state["speech_timer"] -= 1
+    if command_state["feedback_timer"] > 0:
+        command_state["feedback_timer"] -= 1
+
+    if command_state["move_cooldown"] > 0:
+        command_state["move_cooldown"] -= 1
+
+    if command_state["active_path"]:
+        if command_state["move_cooldown"] == 0:
+            eve.cell = command_state["active_path"].pop(0)
+            command_state["path_steps"] += 1
+            command_state["move_cooldown"] = 2
+
+            if (
+                not command_state["active_path"]
+                or command_state["path_steps"] >= settings.MAX_COMMAND_PATH_STEPS
+            ):
+                _finalize_command_feedback(command_state, eve.cell in adam_visible)
+        return
+
+    token = None
+    if command_state["pending_override"] is not None:
+        token = command_state["pending_override"]
+        command_state["pending_override"] = None
+    else:
+        frames_since_issue = command_state["frame"] - command_state["last_issue_frame"]
+        if command_state["auto_enabled"] and frames_since_issue >= settings.COMMAND_INTERVAL_FRAMES:
+            token = rng.choice([command_state["come_token"], command_state["leave_token"]])
+
+    if token is None:
+        return
+
+    command_state["last_issue_frame"] = command_state["frame"]
+    _start_command_execution(command_state, token, adam, eve, adam_visible, objects_by_cell)
 
 
 def build_palette_slots(pygame, object_types):
@@ -567,6 +689,7 @@ def get_inspector_controls():
     return {
         "perception_tab": (px + 8, tab_y, 96, 22),
         "backtrace_tab": (px + 110, tab_y, 96, 22),
+        "command_tab": (px + 212, tab_y, 96, 22),
         "mode_toggle": (px + 8, controls_y, 128, 22),
         "autofill": (px + pw - 204, controls_y, 116, 22),
         "run": (px + pw - 82, controls_y, 72, 22),
@@ -578,6 +701,9 @@ def get_inspector_controls():
         "object_label": (px + 212, row2_y, 120, 22),
         "token_color": (px + 8, row2_y + 30, 86, 22),
         "token_object": (px + 104, row2_y + 30, 86, 22),
+        "cmd_auto": (px + 8, controls_y, 88, 22),
+        "cmd_force_a": (px + 104, controls_y, 95, 22),
+        "cmd_force_b": (px + 206, controls_y, 95, 22),
     }
 
 
@@ -668,6 +794,7 @@ def draw_lexicon_panel(
     drag_perception,
     inspector_tab,
     backtrace_state,
+    command_state,
     slot_scroll_px,
     phrase_scroll_px,
 ):
@@ -805,8 +932,10 @@ def draw_lexicon_panel(
     controls = get_inspector_controls()
     perception_tab_rect = _to_rect(pygame, controls["perception_tab"])
     backtrace_tab_rect = _to_rect(pygame, controls["backtrace_tab"])
+    command_tab_rect = _to_rect(pygame, controls["command_tab"])
     _draw_tab_button(pygame, screen, perception_tab_rect, "Perception", inspector_tab == "perception", small_font)
     _draw_tab_button(pygame, screen, backtrace_tab_rect, "Backtrace", inspector_tab == "backtrace", small_font)
+    _draw_tab_button(pygame, screen, command_tab_rect, "Commands", inspector_tab == "command", small_font)
 
     body_top = perception_rect.y + 34
 
@@ -845,6 +974,41 @@ def draw_lexicon_panel(
             screen.blit(small_font.render(sees_label, True, sees_color), (perception_rect.x + x_offsets[1], row_y))
             screen.blit(small_font.render(row["utterance"], True, (222, 222, 232)), (perception_rect.x + x_offsets[2], row_y))
             row_y += 22
+        return slot_scroll_px, phrase_scroll_px
+
+    if inspector_tab == "command":
+        menu_title = small_font.render("Command Panel", True, (185, 205, 230))
+        screen.blit(menu_title, (perception_rect.x + 8, body_top))
+
+        auto_rect = _to_rect(pygame, controls["cmd_auto"])
+        force_a_rect = _to_rect(pygame, controls["cmd_force_a"])
+        force_b_rect = _to_rect(pygame, controls["cmd_force_b"])
+
+        auto_on = bool(command_state.get("auto_enabled", False))
+        auto_label = "Auto: ON" if auto_on else "Auto: OFF"
+        for rect, label in [
+            (auto_rect, auto_label),
+            (force_a_rect, f"Force A {format_word(command_state.get('come_token'))}"),
+            (force_b_rect, f"Force B {format_word(command_state.get('leave_token'))}"),
+        ]:
+            pygame.draw.rect(screen, (42, 52, 68), rect, border_radius=5)
+            pygame.draw.rect(screen, (102, 120, 144), rect, width=1, border_radius=5)
+            txt = small_font.render(label, True, (222, 230, 242))
+            screen.blit(txt, (rect.x + 6, rect.y + 4))
+
+        status_y = auto_rect.y + 32
+        status_lines = [
+            f"Spoken token: {command_state.get('spoken_text', '----')}",
+            f"Eve action: {command_state.get('current_action') or 'idle'}",
+            f"Last reward: {command_state.get('last_reward') if command_state.get('last_reward') is not None else 'n/a'}",
+            f"Visibility: {command_state.get('last_visibility', 'n/a')}",
+            f"Outcome: {command_state.get('last_outcome', 'n/a')}",
+        ]
+        for idx, line in enumerate(status_lines):
+            color = (206, 220, 238) if idx < 2 else (176, 194, 216)
+            txt = small_font.render(line, True, color)
+            screen.blit(txt, (perception_rect.x + 8, status_y + idx * 18))
+
         return slot_scroll_px, phrase_scroll_px
 
     menu_title = small_font.render("Backtrace Tester", True, (185, 205, 230))
@@ -966,6 +1130,10 @@ def draw_lexicon_panel(
 def run_training(mode, object_types, color_names, seed, steps, write_logs, run_sweep, holdout_pairs=None):
     rng = random.Random(seed) if seed is not None else random.Random()
     cfg = TrainingConfig(learning_steps=steps)
+    command_cfg = CommandTrainingConfig(word_space_size=cfg.word_space_size)
+    command_rng = random.Random(seed + 1337) if seed is not None else random.Random()
+    come_token, leave_token = initialize_hidden_command_mapping(command_cfg, command_rng)
+    command_result = train_command_grounding(command_cfg, come_token, leave_token, command_rng)
 
     adam_lang = LanguageAgent("Adam")
     eve_lang = LanguageAgent("Eve")
@@ -1059,6 +1227,15 @@ def run_training(mode, object_types, color_names, seed, steps, write_logs, run_s
             metrics=metrics,
             seen_pairs=seen_pairs,
             holdout_pairs=heldout_pairs,
+            command_tokens={
+                "come_token": command_result.come_token,
+                "leave_token": command_result.leave_token,
+            },
+            command_training={
+                "episodes": command_result.episodes,
+                "accuracy": command_result.accuracy,
+                "eve_action_q": command_result.eve_action_q,
+            },
         )
 
     sweep_path = None
@@ -1082,6 +1259,7 @@ def run_training(mode, object_types, color_names, seed, steps, write_logs, run_s
         sweep_path,
         seen_pairs,
         heldout_pairs,
+        command_result,
     )
 
 
@@ -1095,6 +1273,7 @@ def run_visualization(
     object_types,
     color_names,
     seen_pairs,
+    command_result,
 ):
     try:
         import pygame
@@ -1140,6 +1319,29 @@ def run_visualization(
         "focus_field": None,
         "results": [],
     }
+    command_state = {
+        "come_token": command_result.come_token,
+        "leave_token": command_result.leave_token,
+        "eve_action_q": command_result.eve_action_q,
+        "auto_enabled": True,
+        "pending_override": None,
+        "frame": 0,
+        "last_issue_frame": -settings.COMMAND_INTERVAL_FRAMES,
+        "spoken_token": None,
+        "spoken_text": "----",
+        "speech_timer": 0,
+        "feedback_text": "",
+        "feedback_timer": 0,
+        "active_path": [],
+        "path_steps": 0,
+        "move_cooldown": 0,
+        "current_intent": None,
+        "current_action": None,
+        "last_reward": None,
+        "last_visibility": "n/a",
+        "last_outcome": "n/a",
+    }
+    command_rng = random.Random((command_result.come_token * 131) + command_result.leave_token)
 
     def run_backtrace_query(use_semantic_selection):
         if not is_backtrace_enabled(mode):
@@ -1229,6 +1431,9 @@ def run_visualization(
                 if point_in_rect(event.pos, controls["backtrace_tab"]):
                     inspector_tab = "backtrace"
                     continue
+                if point_in_rect(event.pos, controls["command_tab"]):
+                    inspector_tab = "command"
+                    continue
 
                 if inspector_tab == "backtrace":
                     if point_in_rect(event.pos, controls["mode_toggle"]):
@@ -1282,6 +1487,16 @@ def run_visualization(
 
                     if point_in_rect(event.pos, panel_layout["perception_rect"]):
                         backtrace_state["focus_field"] = None
+                elif inspector_tab == "command":
+                    if point_in_rect(event.pos, controls["cmd_auto"]):
+                        command_state["auto_enabled"] = not command_state["auto_enabled"]
+                        continue
+                    if point_in_rect(event.pos, controls["cmd_force_a"]):
+                        command_state["pending_override"] = command_state["come_token"]
+                        continue
+                    if point_in_rect(event.pos, controls["cmd_force_b"]):
+                        command_state["pending_override"] = command_state["leave_token"]
+                        continue
 
                 header_rect, option_rects = get_color_dropdown_geometry(pygame, palette_slots, color_names)
 
@@ -1339,6 +1554,16 @@ def run_visualization(
             color_dropdown_open,
         )
 
+        adam_visible_for_command = raycast_visible_cells(adam)
+        update_command_state(
+            command_state=command_state,
+            adam=adam,
+            eve=eve,
+            adam_visible=adam_visible_for_command,
+            objects_by_cell=objects_by_cell,
+            rng=command_rng,
+        )
+
         occupancy_names = {agent.cell: agent.name for agent in agents if agent.cell is not None}
         occupancy_colors = {agent.cell: agent.color for agent in agents if agent.cell is not None}
 
@@ -1365,6 +1590,32 @@ def run_visualization(
 
         for agent in agents:
             draw_agent(pygame, screen, agent)
+
+        adam_x, adam_y = cell_to_screen(*adam.cell)
+        bubble_anchor_x = adam_x + VISUAL_TILE_WIDTH // 2
+        bubble_anchor_y = adam_y
+        if command_state.get("speech_timer", 0) > 0:
+            draw_speech_bubble(
+                pygame,
+                screen,
+                small_font,
+                command_state.get("spoken_text", "----"),
+                bubble_anchor_x,
+                bubble_anchor_y,
+                fill=(228, 238, 250),
+                fg=(24, 34, 46),
+            )
+        if command_state.get("feedback_timer", 0) > 0:
+            draw_speech_bubble(
+                pygame,
+                screen,
+                small_font,
+                command_state.get("feedback_text", ""),
+                bubble_anchor_x,
+                bubble_anchor_y - 28,
+                fill=(246, 236, 214),
+                fg=(36, 32, 18),
+            )
 
         draw_color_dropdown(
             pygame,
@@ -1407,6 +1658,7 @@ def run_visualization(
             drag_perception,
             inspector_tab,
             backtrace_state,
+            command_state,
             slot_scroll_px,
             phrase_scroll_px,
         )
@@ -1530,6 +1782,7 @@ def main():
         sweep_path,
         seen_pairs,
         heldout_pairs,
+        command_result,
     ) = run_training(
         mode=mode,
         object_types=object_types,
@@ -1552,6 +1805,13 @@ def main():
         )
         if mode == "factored":
             print(f"Holdouts: trained={len(seen_pairs)} heldout={len(heldout_pairs)}")
+        print(
+            "Command grounding: "
+            f"A={format_word(command_result.come_token)} "
+            f"B={format_word(command_result.leave_token)} "
+            f"accuracy={command_result.accuracy:.3f} "
+            f"episodes={command_result.episodes}"
+        )
 
         if slot_rows:
             print("\nBase Factored Lexicon")
@@ -1595,6 +1855,7 @@ def main():
         object_types=palette_object_types,
         color_names=color_names,
         seen_pairs=seen_pairs,
+        command_result=command_result,
     )
     sys.exit()
 

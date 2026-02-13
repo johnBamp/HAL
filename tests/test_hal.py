@@ -1,13 +1,16 @@
 import random
 
 from hal import (
+    CommandTrainingConfig,
     LanguageAgent,
     TrainingConfig,
     backtrace_factored_phrase,
     build_slot_id_maps,
     color_key,
     initialize_language,
+    initialize_hidden_command_mapping,
     object_key,
+    train_command_grounding,
     train_factored_language,
     train_language,
 )
@@ -164,3 +167,38 @@ def test_holistic_single_concept_training_still_works():
 
     result = train_language(adam, eve, concept, cfg, rng)
     assert result.final_word != "NO_CONSENSUS"
+
+
+def test_command_pretraining_reaches_high_accuracy_for_fixed_seed():
+    rng = random.Random(41)
+    cfg = CommandTrainingConfig(
+        word_space_size=TrainingConfig().word_space_size,
+        episodes=1200,
+        epsilon=0.22,
+        learning_rate=0.18,
+        trailing_window=240,
+    )
+    come_token, leave_token = initialize_hidden_command_mapping(cfg, rng)
+    result = train_command_grounding(cfg, come_token, leave_token, rng)
+    assert result.accuracy >= 0.8
+
+
+def test_command_tokens_converge_to_opposite_actions():
+    rng = random.Random(17)
+    cfg = CommandTrainingConfig(
+        word_space_size=TrainingConfig().word_space_size,
+        episodes=1000,
+        epsilon=0.2,
+        learning_rate=0.18,
+        trailing_window=200,
+    )
+    come_token, leave_token = initialize_hidden_command_mapping(cfg, rng)
+    result = train_command_grounding(cfg, come_token, leave_token, rng)
+
+    come_row = result.eve_action_q[come_token]
+    leave_row = result.eve_action_q[leave_token]
+    come_action = "approach" if come_row["approach"] >= come_row["avoid"] else "avoid"
+    leave_action = "approach" if leave_row["approach"] >= leave_row["avoid"] else "avoid"
+
+    assert come_action == "approach"
+    assert leave_action == "avoid"
