@@ -7,7 +7,9 @@ import settings
 from hal import (
     LanguageAgent,
     TrainingConfig,
+    backtrace_factored_phrase,
     best_word,
+    build_slot_id_maps,
     color_key,
     format_word,
     initialize_language,
@@ -112,6 +114,10 @@ def concept_key(object_type, color_name):
 
 def concept_label(object_type, color_name):
     return f"{color_name.title()} {object_type.title()}"
+
+
+def is_backtrace_enabled(mode):
+    return mode == "factored"
 
 
 def cell_to_screen(grid_x, grid_y):
@@ -521,7 +527,7 @@ def get_lexicon_panel_layout():
 
     section_top = 84
     gap = 10
-    perception_h = 170
+    perception_h = 220
     bottom_pad = 8
 
     available = SCREEN_HEIGHT - section_top - perception_h - gap - bottom_pad
@@ -550,6 +556,106 @@ def point_in_rect(pos, rect):
     return rx <= x < rx + rw and ry <= y < ry + rh
 
 
+def get_inspector_controls():
+    layout = get_lexicon_panel_layout()
+    px, py, pw, _ = layout["perception_rect"]
+
+    tab_y = py + 6
+    controls_y = py + 34
+    row2_y = controls_y + 30
+
+    return {
+        "perception_tab": (px + 8, tab_y, 96, 22),
+        "backtrace_tab": (px + 110, tab_y, 96, 22),
+        "mode_toggle": (px + 8, controls_y, 128, 22),
+        "autofill": (px + pw - 204, controls_y, 116, 22),
+        "run": (px + pw - 82, controls_y, 72, 22),
+        "color_prev": (px + 8, row2_y, 22, 22),
+        "color_next": (px + 158, row2_y, 22, 22),
+        "color_label": (px + 34, row2_y, 120, 22),
+        "object_prev": (px + 186, row2_y, 22, 22),
+        "object_next": (px + 336, row2_y, 22, 22),
+        "object_label": (px + 212, row2_y, 120, 22),
+        "token_color": (px + 8, row2_y + 30, 86, 22),
+        "token_object": (px + 104, row2_y + 30, 86, 22),
+    }
+
+
+def _slot_options(slot_rows, slot_type, fallback_values):
+    values = [row.get("slot_label", "").strip().lower() for row in slot_rows if row.get("slot_type") == slot_type]
+    values = [value for value in values if value]
+    if values:
+        return list(dict.fromkeys(values))
+    return list(fallback_values)
+
+
+def _cycle_selected(values, current_value, direction):
+    if not values:
+        return current_value
+    if current_value not in values:
+        return values[0]
+    idx = values.index(current_value)
+    idx = (idx + direction) % len(values)
+    return values[idx]
+
+
+def _semantic_tokens_from_selection(agent, color_name, object_name, color_options, object_options):
+    slot_maps = build_slot_id_maps(agent, color_options, object_options)
+    color_token = slot_maps["color_label_to_token"].get(color_name)
+    object_token = slot_maps["object_label_to_token"].get(object_name)
+    if color_token is None or object_token is None:
+        return "", ""
+    return f"{color_token:04d}", f"{object_token:04d}"
+
+
+def _build_backtrace_rows(
+    agents,
+    color_token,
+    object_token,
+    color_options,
+    object_options,
+    seen_pairs,
+):
+    rows = []
+    for agent in agents:
+        result = backtrace_factored_phrase(
+            agent.language,
+            color_token=color_token,
+            object_token=object_token,
+            color_names=color_options,
+            object_types=object_options,
+            seen_pairs=seen_pairs,
+        )
+        rows.append(
+            {
+                "agent_name": agent.name,
+                "color_token_input": result.color_token_input,
+                "object_token_input": result.object_token_input,
+                "decoded_concept_label": result.decoded_concept_label,
+                "decoded_concept_key": result.decoded_concept_key,
+                "seen_in_training": result.seen_in_training,
+                "decode_quality": result.decode_quality,
+                "notes": result.notes,
+            }
+        )
+    return rows
+
+
+def _to_rect(pygame, rect_tuple):
+    return pygame.Rect(rect_tuple[0], rect_tuple[1], rect_tuple[2], rect_tuple[3])
+
+
+def _draw_tab_button(pygame, screen, rect, label, active, small_font):
+    bg = (62, 80, 108) if active else (34, 40, 52)
+    fg = (232, 239, 249) if active else (188, 204, 228)
+    pygame.draw.rect(screen, bg, rect, border_radius=6)
+    pygame.draw.rect(screen, (108, 122, 148), rect, width=1, border_radius=6)
+    text = small_font.render(label, True, fg)
+    tx = rect.x + (rect.width - text.get_width()) // 2
+    ty = rect.y + (rect.height - text.get_height()) // 2
+    screen.blit(text, (tx, ty))
+
+
 def draw_lexicon_panel(
     pygame,
     screen,
@@ -560,6 +666,8 @@ def draw_lexicon_panel(
     phrase_rows,
     metrics,
     drag_perception,
+    inspector_tab,
+    backtrace_state,
     slot_scroll_px,
     phrase_scroll_px,
 ):
@@ -694,46 +802,168 @@ def draw_lexicon_panel(
         thumb_y = bar_y + int((phrase_scroll_px / phrase_max_scroll) * thumb_range)
         pygame.draw.rect(screen, (150, 150, 180), pygame.Rect(bar_x, thumb_y, 4, thumb_h))
 
-    # Section C: perception menu.
-    menu_title = small_font.render("Perception Menu (Dragged Object)", True, (185, 205, 230))
-    screen.blit(menu_title, (perception_rect.x + 8, perception_rect.y + 8))
+    controls = get_inspector_controls()
+    perception_tab_rect = _to_rect(pygame, controls["perception_tab"])
+    backtrace_tab_rect = _to_rect(pygame, controls["backtrace_tab"])
+    _draw_tab_button(pygame, screen, perception_tab_rect, "Perception", inspector_tab == "perception", small_font)
+    _draw_tab_button(pygame, screen, backtrace_tab_rect, "Backtrace", inspector_tab == "backtrace", small_font)
 
-    if drag_perception["kind"] is None:
-        hint = small_font.render("Drag an object from the bar to inspect perception.", True, (154, 166, 182))
-        screen.blit(hint, (perception_rect.x + 8, perception_rect.y + 30))
+    body_top = perception_rect.y + 34
+
+    if inspector_tab == "perception":
+        menu_title = small_font.render("Perception Menu (Dragged Object)", True, (185, 205, 230))
+        screen.blit(menu_title, (perception_rect.x + 8, body_top))
+
+        if drag_perception["kind"] is None:
+            hint = small_font.render("Drag an object from the bar to inspect perception.", True, (154, 166, 182))
+            screen.blit(hint, (perception_rect.x + 8, body_top + 22))
+            return slot_scroll_px, phrase_scroll_px
+
+        concept_txt = concept_label(drag_perception["kind"], drag_perception["color_name"])
+        hover_text = f"Hover: {_format_cell(drag_perception['hover_cell'])}"
+        preview_text = f"Preview drop: {_format_cell(drag_perception['preview_cell'])}"
+        syntax_text = "Syntax: Color -> Object"
+
+        screen.blit(small_font.render(f"Object: {concept_txt}", True, (222, 222, 232)), (perception_rect.x + 8, body_top + 22))
+        screen.blit(small_font.render(hover_text, True, (154, 166, 182)), (perception_rect.x + 8, body_top + 40))
+        screen.blit(small_font.render(preview_text, True, (154, 166, 182)), (perception_rect.x + 8, body_top + 58))
+        screen.blit(small_font.render(syntax_text, True, (154, 166, 182)), (perception_rect.x + 8, body_top + 76))
+
+        headers = ["Agent", "Sees", "Utterance"]
+        x_offsets = [8, 96, 162]
+        base_y = body_top + 102
+        for i, header in enumerate(headers):
+            txt = small_font.render(header, True, (166, 186, 210))
+            screen.blit(txt, (perception_rect.x + x_offsets[i], base_y))
+
+        row_y = base_y + 22
+        for row in drag_perception["rows"]:
+            sees_label = "YES" if row["sees_object"] else "NO"
+            sees_color = (164, 228, 172) if row["sees_object"] else (235, 156, 156)
+
+            screen.blit(small_font.render(row["agent_name"], True, (222, 222, 232)), (perception_rect.x + x_offsets[0], row_y))
+            screen.blit(small_font.render(sees_label, True, sees_color), (perception_rect.x + x_offsets[1], row_y))
+            screen.blit(small_font.render(row["utterance"], True, (222, 222, 232)), (perception_rect.x + x_offsets[2], row_y))
+            row_y += 22
         return slot_scroll_px, phrase_scroll_px
 
-    concept_txt = concept_label(drag_perception["kind"], drag_perception["color_name"])
-    hover_text = f"Hover: {_format_cell(drag_perception['hover_cell'])}"
-    preview_text = f"Preview drop: {_format_cell(drag_perception['preview_cell'])}"
-    syntax_text = "Syntax: Color -> Object"
+    menu_title = small_font.render("Backtrace Tester", True, (185, 205, 230))
+    screen.blit(menu_title, (perception_rect.x + 8, body_top))
 
-    screen.blit(small_font.render(f"Object: {concept_txt}", True, (222, 222, 232)), (perception_rect.x + 8, perception_rect.y + 30))
-    screen.blit(small_font.render(hover_text, True, (154, 166, 182)), (perception_rect.x + 8, perception_rect.y + 48))
-    screen.blit(small_font.render(preview_text, True, (154, 166, 182)), (perception_rect.x + 8, perception_rect.y + 66))
-    screen.blit(small_font.render(syntax_text, True, (154, 166, 182)), (perception_rect.x + 8, perception_rect.y + 84))
+    if not is_backtrace_enabled(mode):
+        disabled = small_font.render("Backtrace is available only in factored mode.", True, (194, 152, 152))
+        screen.blit(disabled, (perception_rect.x + 8, body_top + 24))
+        return slot_scroll_px, phrase_scroll_px
 
-    headers = ["Agent", "Sees", "Utterance"]
-    x_offsets = [8, 96, 162]
-    base_y = perception_rect.y + 108
-    for i, header in enumerate(headers):
+    mode_toggle_rect = _to_rect(pygame, controls["mode_toggle"])
+    autofill_rect = _to_rect(pygame, controls["autofill"])
+    run_rect = _to_rect(pygame, controls["run"])
+    color_prev_rect = _to_rect(pygame, controls["color_prev"])
+    color_next_rect = _to_rect(pygame, controls["color_next"])
+    color_label_rect = _to_rect(pygame, controls["color_label"])
+    object_prev_rect = _to_rect(pygame, controls["object_prev"])
+    object_next_rect = _to_rect(pygame, controls["object_next"])
+    object_label_rect = _to_rect(pygame, controls["object_label"])
+    token_color_rect = _to_rect(pygame, controls["token_color"])
+    token_object_rect = _to_rect(pygame, controls["token_object"])
+
+    input_mode = backtrace_state.get("input_mode", "semantic")
+    selected_color = backtrace_state.get("color_name", "red")
+    selected_object = backtrace_state.get("object_name", "apple")
+    token_color = backtrace_state.get("token_color", "")
+    token_object = backtrace_state.get("token_object", "")
+    focused_field = backtrace_state.get("focus_field")
+    result_rows = backtrace_state.get("results", [])
+
+    pygame.draw.rect(screen, (38, 49, 62), mode_toggle_rect, border_radius=5)
+    pygame.draw.rect(screen, (96, 116, 142), mode_toggle_rect, width=1, border_radius=5)
+    mode_text = "Input: Semantic" if input_mode == "semantic" else "Input: Token IDs"
+    screen.blit(small_font.render(mode_text, True, (222, 230, 242)), (mode_toggle_rect.x + 8, mode_toggle_rect.y + 4))
+
+    for rect, label in [(autofill_rect, "Use Selection"), (run_rect, "Run")]:
+        pygame.draw.rect(screen, (44, 54, 70), rect, border_radius=5)
+        pygame.draw.rect(screen, (102, 120, 144), rect, width=1, border_radius=5)
+        txt = small_font.render(label, True, (222, 230, 242))
+        screen.blit(txt, (rect.x + (rect.width - txt.get_width()) // 2, rect.y + 4))
+
+    for rect, label in [(color_prev_rect, "<"), (color_next_rect, ">"), (object_prev_rect, "<"), (object_next_rect, ">")]:
+        pygame.draw.rect(screen, (42, 49, 62), rect, border_radius=5)
+        pygame.draw.rect(screen, (96, 114, 138), rect, width=1, border_radius=5)
+        txt = small_font.render(label, True, (222, 230, 242))
+        screen.blit(txt, (rect.x + (rect.width - txt.get_width()) // 2, rect.y + 3))
+
+    for rect, label in [(color_label_rect, f"Color: {selected_color.title()}"), (object_label_rect, f"Object: {selected_object.title()}")]:
+        pygame.draw.rect(screen, (30, 36, 48), rect, border_radius=5)
+        pygame.draw.rect(screen, (88, 102, 124), rect, width=1, border_radius=5)
+        txt = small_font.render(label, True, (214, 224, 236))
+        screen.blit(txt, (rect.x + 7, rect.y + 4))
+
+    token_label = small_font.render("Token Input:", True, (166, 186, 210))
+    screen.blit(token_label, (token_color_rect.x, token_color_rect.y - 16))
+
+    for rect, value, name in [
+        (token_color_rect, token_color, "color"),
+        (token_object_rect, token_object, "object"),
+    ]:
+        border = (150, 180, 220) if focused_field == name else (92, 106, 130)
+        pygame.draw.rect(screen, (28, 32, 42), rect, border_radius=5)
+        pygame.draw.rect(screen, border, rect, width=1, border_radius=5)
+        txt = small_font.render(value if value else "----", True, (224, 232, 244))
+        screen.blit(txt, (rect.x + 7, rect.y + 4))
+
+    result_y = token_color_rect.y + 30
+    headers = ["Agent", "Tokens", "Concept", "Seen", "Quality"]
+    x_offsets = [8, 72, 150, 282, 338]
+    for idx, header in enumerate(headers):
         txt = small_font.render(header, True, (166, 186, 210))
-        screen.blit(txt, (perception_rect.x + x_offsets[i], base_y))
+        screen.blit(txt, (perception_rect.x + x_offsets[idx], result_y))
 
-    row_y = base_y + 22
-    for row in drag_perception["rows"]:
-        sees_label = "YES" if row["sees_object"] else "NO"
-        sees_color = (164, 228, 172) if row["sees_object"] else (235, 156, 156)
+    row_y = result_y + 18
+    if not result_rows:
+        hint = small_font.render("Run backtrace to decode a concept.", True, (154, 166, 182))
+        screen.blit(hint, (perception_rect.x + 8, row_y + 2))
+    else:
+        for row in result_rows:
+            seen = row.get("seen_in_training")
+            if seen is None:
+                seen_label = "N/A"
+                seen_color = (188, 194, 206)
+            elif seen:
+                seen_label = "Seen"
+                seen_color = (164, 228, 172)
+            else:
+                seen_label = "Novel"
+                seen_color = (235, 196, 140)
 
-        screen.blit(small_font.render(row["agent_name"], True, (222, 222, 232)), (perception_rect.x + x_offsets[0], row_y))
-        screen.blit(small_font.render(sees_label, True, sees_color), (perception_rect.x + x_offsets[1], row_y))
-        screen.blit(small_font.render(row["utterance"], True, (222, 222, 232)), (perception_rect.x + x_offsets[2], row_y))
-        row_y += 24
+            quality = row.get("decode_quality", "?")
+            quality_color = (164, 228, 172) if quality == "exact" else (224, 208, 152)
+            if quality == "invalid":
+                quality_color = (235, 156, 156)
+            if quality == "ambiguous":
+                quality_color = (232, 186, 142)
+
+            token_text = f"[{row.get('color_token_input', '----')}, {row.get('object_token_input', '----')}]"
+
+            screen.blit(small_font.render(row.get("agent_name", "?"), True, (222, 222, 232)), (perception_rect.x + x_offsets[0], row_y))
+            screen.blit(small_font.render(token_text, True, (222, 222, 232)), (perception_rect.x + x_offsets[1], row_y))
+            screen.blit(small_font.render(row.get("decoded_concept_label", "UNKNOWN"), True, (222, 222, 232)), (perception_rect.x + x_offsets[2], row_y))
+            screen.blit(small_font.render(seen_label, True, seen_color), (perception_rect.x + x_offsets[3], row_y))
+            screen.blit(small_font.render(quality, True, quality_color), (perception_rect.x + x_offsets[4], row_y))
+            row_y += 19
+
+            notes = row.get("notes", "")
+            if notes:
+                clipped = notes if len(notes) <= 72 else notes[:69] + "..."
+                screen.blit(
+                    small_font.render(clipped, True, (154, 166, 182)),
+                    (perception_rect.x + 8, row_y),
+                )
+                row_y += 17
 
     return slot_scroll_px, phrase_scroll_px
 
 
-def run_training(mode, object_types, color_names, seed, steps, write_logs, run_sweep):
+def run_training(mode, object_types, color_names, seed, steps, write_logs, run_sweep, holdout_pairs=None):
     rng = random.Random(seed) if seed is not None else random.Random()
     cfg = TrainingConfig(learning_steps=steps)
 
@@ -744,6 +974,8 @@ def run_training(mode, object_types, color_names, seed, steps, write_logs, run_s
     slot_rows = []
     phrase_rows = []
     metrics = {}
+    seen_pairs = []
+    heldout_pairs = []
 
     if mode == "holistic":
         concept_specs = [
@@ -796,10 +1028,20 @@ def run_training(mode, object_types, color_names, seed, steps, write_logs, run_s
         initialize_language(adam_lang, color_semantics + object_semantics, cfg, rng)
         initialize_language(eve_lang, color_semantics + object_semantics, cfg, rng)
 
-        factored = train_factored_language(adam_lang, eve_lang, color_names, object_types, cfg, rng)
+        factored = train_factored_language(
+            adam_lang,
+            eve_lang,
+            color_names,
+            object_types,
+            cfg,
+            rng,
+            holdout_pairs=holdout_pairs,
+        )
         slot_rows = factored.slot_rows
         phrase_rows = factored.phrase_rows
         metrics = factored.metrics
+        seen_pairs = factored.seen_pairs
+        heldout_pairs = factored.heldout_pairs
 
     lexicon_rows = phrase_rows
 
@@ -815,6 +1057,8 @@ def run_training(mode, object_types, color_names, seed, steps, write_logs, run_s
             slot_lexicon=slot_rows,
             phrase_lexicon=phrase_rows,
             metrics=metrics,
+            seen_pairs=seen_pairs,
+            holdout_pairs=heldout_pairs,
         )
 
     sweep_path = None
@@ -836,10 +1080,22 @@ def run_training(mode, object_types, color_names, seed, steps, write_logs, run_s
         metrics,
         log_paths,
         sweep_path,
+        seen_pairs,
+        heldout_pairs,
     )
 
 
-def run_visualization(mode, slot_rows, phrase_rows, metrics, adam_lang, eve_lang, object_types, color_names):
+def run_visualization(
+    mode,
+    slot_rows,
+    phrase_rows,
+    metrics,
+    adam_lang,
+    eve_lang,
+    object_types,
+    color_names,
+    seen_pairs,
+):
     try:
         import pygame
     except ModuleNotFoundError:
@@ -871,13 +1127,74 @@ def run_visualization(mode, slot_rows, phrase_rows, metrics, adam_lang, eve_lang
     slot_scroll_px = 0
     phrase_scroll_px = 0
 
+    inspector_tab = "perception"
+    seen_pairs_set = set(seen_pairs or [])
+    backtrace_color_options = _slot_options(slot_rows, "color", color_names)
+    backtrace_object_options = _slot_options(slot_rows, "object", object_types)
+    backtrace_state = {
+        "input_mode": "semantic",
+        "color_name": backtrace_color_options[0] if backtrace_color_options else "red",
+        "object_name": backtrace_object_options[0] if backtrace_object_options else "apple",
+        "token_color": "",
+        "token_object": "",
+        "focus_field": None,
+        "results": [],
+    }
+
+    def run_backtrace_query(use_semantic_selection):
+        if not is_backtrace_enabled(mode):
+            return
+
+        if use_semantic_selection or backtrace_state["input_mode"] == "semantic":
+            color_token, object_token = _semantic_tokens_from_selection(
+                adam.language,
+                backtrace_state["color_name"],
+                backtrace_state["object_name"],
+                backtrace_color_options,
+                backtrace_object_options,
+            )
+            backtrace_state["token_color"] = color_token
+            backtrace_state["token_object"] = object_token
+        else:
+            color_token = backtrace_state["token_color"]
+            object_token = backtrace_state["token_object"]
+
+        backtrace_state["results"] = _build_backtrace_rows(
+            agents,
+            color_token=color_token,
+            object_token=object_token,
+            color_options=backtrace_color_options,
+            object_options=backtrace_object_options,
+            seen_pairs=seen_pairs_set,
+        )
+
     running = True
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
-            elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-                running = False
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    running = False
+                    continue
+
+                if (
+                    inspector_tab == "backtrace"
+                    and is_backtrace_enabled(mode)
+                    and backtrace_state["input_mode"] == "token"
+                    and backtrace_state.get("focus_field") in {"color", "object"}
+                ):
+                    field = "token_color" if backtrace_state["focus_field"] == "color" else "token_object"
+                    value = backtrace_state.get(field, "")
+
+                    if event.key == pygame.K_BACKSPACE:
+                        backtrace_state[field] = value[:-1]
+                    elif event.key == pygame.K_TAB:
+                        backtrace_state["focus_field"] = "object" if field == "token_color" else "color"
+                    elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                        run_backtrace_query(use_semantic_selection=False)
+                    elif event.unicode and event.unicode.isdigit() and len(value) < 6:
+                        backtrace_state[field] = value + event.unicode
             elif event.type == pygame.MOUSEWHEEL:
                 mouse_pos = pygame.mouse.get_pos()
                 layout = get_lexicon_panel_layout()
@@ -902,6 +1219,70 @@ def run_visualization(mode, slot_rows, phrase_rows, metrics, adam_lang, eve_lang
                 else:
                     phrase_scroll_px -= event.y * 24
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                controls = get_inspector_controls()
+                panel_layout = get_lexicon_panel_layout()
+
+                if point_in_rect(event.pos, controls["perception_tab"]):
+                    inspector_tab = "perception"
+                    backtrace_state["focus_field"] = None
+                    continue
+                if point_in_rect(event.pos, controls["backtrace_tab"]):
+                    inspector_tab = "backtrace"
+                    continue
+
+                if inspector_tab == "backtrace":
+                    if point_in_rect(event.pos, controls["mode_toggle"]):
+                        backtrace_state["input_mode"] = "token" if backtrace_state["input_mode"] == "semantic" else "semantic"
+                        backtrace_state["focus_field"] = None
+                        continue
+
+                    if is_backtrace_enabled(mode):
+                        if point_in_rect(event.pos, controls["color_prev"]):
+                            backtrace_state["color_name"] = _cycle_selected(
+                                backtrace_color_options,
+                                backtrace_state["color_name"],
+                                -1,
+                            )
+                            continue
+                        if point_in_rect(event.pos, controls["color_next"]):
+                            backtrace_state["color_name"] = _cycle_selected(
+                                backtrace_color_options,
+                                backtrace_state["color_name"],
+                                1,
+                            )
+                            continue
+                        if point_in_rect(event.pos, controls["object_prev"]):
+                            backtrace_state["object_name"] = _cycle_selected(
+                                backtrace_object_options,
+                                backtrace_state["object_name"],
+                                -1,
+                            )
+                            continue
+                        if point_in_rect(event.pos, controls["object_next"]):
+                            backtrace_state["object_name"] = _cycle_selected(
+                                backtrace_object_options,
+                                backtrace_state["object_name"],
+                                1,
+                            )
+                            continue
+                        if point_in_rect(event.pos, controls["autofill"]):
+                            run_backtrace_query(use_semantic_selection=True)
+                            backtrace_state["focus_field"] = None
+                            continue
+                        if point_in_rect(event.pos, controls["run"]):
+                            run_backtrace_query(use_semantic_selection=False)
+                            backtrace_state["focus_field"] = None
+                            continue
+                        if point_in_rect(event.pos, controls["token_color"]):
+                            backtrace_state["focus_field"] = "color"
+                            continue
+                        if point_in_rect(event.pos, controls["token_object"]):
+                            backtrace_state["focus_field"] = "object"
+                            continue
+
+                    if point_in_rect(event.pos, panel_layout["perception_rect"]):
+                        backtrace_state["focus_field"] = None
+
                 header_rect, option_rects = get_color_dropdown_geometry(pygame, palette_slots, color_names)
 
                 if header_rect.collidepoint(event.pos):
@@ -1024,6 +1405,8 @@ def run_visualization(mode, slot_rows, phrase_rows, metrics, adam_lang, eve_lang
             phrase_rows,
             metrics,
             drag_perception,
+            inspector_tab,
+            backtrace_state,
             slot_scroll_px,
             phrase_scroll_px,
         )
@@ -1054,6 +1437,38 @@ def parse_color_names(raw):
     return list(dict.fromkeys(color_names))
 
 
+def parse_holdout_phrases(raw, color_names, object_types):
+    if raw is None or not raw.strip():
+        return [], []
+
+    color_set = set(color_names)
+    object_set = set(object_types)
+    pairs = []
+    warnings = []
+
+    for token in raw.split(","):
+        item = token.strip().lower()
+        if not item:
+            continue
+        if ":" not in item:
+            warnings.append(f"Ignoring malformed holdout '{item}'. Expected color:object.")
+            continue
+
+        color_name, object_type = [part.strip() for part in item.split(":", 1)]
+        if not color_name or not object_type:
+            warnings.append(f"Ignoring malformed holdout '{item}'. Expected color:object.")
+            continue
+        if color_name not in color_set or object_type not in object_set:
+            warnings.append(
+                f"Ignoring holdout '{item}' because it is outside selected --colors/--objects."
+            )
+            continue
+
+        pairs.append((color_name, object_type))
+
+    return list(dict.fromkeys(pairs)), warnings
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="HAL language emergence demo")
     parser.add_argument(
@@ -1071,6 +1486,11 @@ def parse_args():
         "--colors",
         default=",".join(DEFAULT_COLOR_NAMES),
         help="Comma-separated colors for concept generation",
+    )
+    parser.add_argument(
+        "--holdout-phrases",
+        default="",
+        help="Optional held-out concept pairs as color:object,color:object",
     )
     parser.add_argument("--seed", type=int, default=None, help="RNG seed for reproducible training")
     parser.add_argument(
@@ -1094,6 +1514,9 @@ def main():
     mode = args.mode
     object_types = parse_object_types(args.objects)
     color_names = parse_color_names(args.colors)
+    holdout_pairs, holdout_warnings = parse_holdout_phrases(args.holdout_phrases, color_names, object_types)
+    for warning in holdout_warnings:
+        print(f"[holdout] {warning}")
 
     (
         _,
@@ -1105,6 +1528,8 @@ def main():
         metrics,
         log_paths,
         sweep_path,
+        seen_pairs,
+        heldout_pairs,
     ) = run_training(
         mode=mode,
         object_types=object_types,
@@ -1113,6 +1538,7 @@ def main():
         steps=args.steps,
         write_logs=not args.no_log_files,
         run_sweep=args.sweep,
+        holdout_pairs=holdout_pairs,
     )
 
     if args.train_only:
@@ -1124,6 +1550,8 @@ def main():
             f"achieved_unique={metrics.get('achieved_unique', 'n/a')} "
             f"phrase_consensus={metrics.get('all_phrase_consensus', 'n/a')}"
         )
+        if mode == "factored":
+            print(f"Holdouts: trained={len(seen_pairs)} heldout={len(heldout_pairs)}")
 
         if slot_rows:
             print("\nBase Factored Lexicon")
@@ -1137,8 +1565,9 @@ def main():
         print("\nComposed Phrases")
         print("-" * 44)
         for row in phrase_rows:
+            trained_flag = "T" if row.get("was_trained", True) else "H"
             print(
-                f"{row['concept_label']:<20} Adam:{row.get('adam_phrase_ids', row.get('adam_word', '----')):<14} "
+                f"[{trained_flag}] {row['concept_label']:<16} Adam:{row.get('adam_phrase_ids', row.get('adam_word', '----')):<14} "
                 f"Eve:{row.get('eve_phrase_ids', row.get('eve_word', '----')):<14} "
                 f"Shared:{row.get('shared_phrase_ids', row.get('shared_word', 'NO_CONSENSUS'))}"
             )
@@ -1165,6 +1594,7 @@ def main():
         eve_lang=eve_lang,
         object_types=palette_object_types,
         color_names=color_names,
+        seen_pairs=seen_pairs,
     )
     sys.exit()
 

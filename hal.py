@@ -48,6 +48,21 @@ class FactoredTrainingResult:
     debug_rows: list[dict]
     converged_step: int | None
     history_lines: list[str]
+    seen_pairs: list[str] = field(default_factory=list)
+    heldout_pairs: list[str] = field(default_factory=list)
+
+
+@dataclass
+class BacktraceResult:
+    color_token_input: str
+    object_token_input: str
+    decoded_color_label: str
+    decoded_object_label: str
+    decoded_concept_label: str
+    decoded_concept_key: str
+    seen_in_training: bool | None
+    decode_quality: str
+    notes: str
 
 
 def color_key(color_name: str) -> str:
@@ -343,6 +358,162 @@ def _all_phrase_consensus(
     return True
 
 
+def build_slot_id_maps(
+    agent: LanguageAgent,
+    color_names: list[str],
+    object_types: list[str],
+) -> dict[str, dict]:
+    color_label_to_token: dict[str, int] = {}
+    object_label_to_token: dict[str, int] = {}
+
+    for color_name in color_names:
+        semantic = color_key(color_name)
+        if semantic in agent.q_table:
+            color_label_to_token[color_name] = best_word(agent, semantic)
+
+    for object_type in object_types:
+        semantic = object_key(object_type)
+        if semantic in agent.q_table:
+            object_label_to_token[object_type] = best_word(agent, semantic)
+
+    color_token_to_labels: dict[int, list[str]] = {}
+    for label, token in color_label_to_token.items():
+        color_token_to_labels.setdefault(token, []).append(label)
+
+    object_token_to_labels: dict[int, list[str]] = {}
+    for label, token in object_label_to_token.items():
+        object_token_to_labels.setdefault(token, []).append(label)
+
+    return {
+        "color_label_to_token": color_label_to_token,
+        "object_label_to_token": object_label_to_token,
+        "color_token_to_labels": color_token_to_labels,
+        "object_token_to_labels": object_token_to_labels,
+    }
+
+
+def _parse_word_token(token_input: str | int | None, word_space_size: int) -> tuple[int | None, str | None]:
+    if token_input is None:
+        return None, "missing token"
+
+    raw = str(token_input).strip()
+    if not raw:
+        return None, "missing token"
+
+    if not raw.isdigit():
+        return None, f"token '{raw}' is not numeric"
+
+    token = int(raw)
+    if token < 0 or token >= word_space_size:
+        return None, f"token '{raw}' outside range 0000..{word_space_size - 1:04d}"
+
+    return token, None
+
+
+def _decode_slot_token(
+    token: int,
+    label_to_token: dict[str, int],
+) -> tuple[str, str, str]:
+    exact_matches = sorted([label for label, value in label_to_token.items() if value == token])
+    if len(exact_matches) == 1:
+        return exact_matches[0], "exact", ""
+    if len(exact_matches) > 1:
+        return (
+            exact_matches[0],
+            "ambiguous",
+            f"exact token collision among: {', '.join(name.title() for name in exact_matches)}",
+        )
+
+    best_label = ""
+    best_distance = None
+    ties: list[str] = []
+    for label, value in label_to_token.items():
+        distance = abs(value - token)
+        if best_distance is None or distance < best_distance:
+            best_distance = distance
+            best_label = label
+            ties = [label]
+        elif distance == best_distance:
+            ties.append(label)
+
+    if not best_label:
+        return "unknown", "invalid", "no semantic entries available"
+
+    if len(ties) > 1:
+        chosen = sorted(ties)[0]
+        return (
+            chosen,
+            "ambiguous",
+            f"nearest tie among: {', '.join(name.title() for name in sorted(ties))}",
+        )
+
+    return best_label, "nearest", f"nearest distance={best_distance}"
+
+
+def backtrace_factored_phrase(
+    agent: LanguageAgent,
+    color_token: str | int | None,
+    object_token: str | int | None,
+    color_names: list[str],
+    object_types: list[str],
+    seen_pairs: set[str] | list[str] | None = None,
+    word_space_size: int = settings.WORD_SPACE_SIZE,
+) -> BacktraceResult:
+    seen_pairs = set(seen_pairs or [])
+
+    parsed_color, color_err = _parse_word_token(color_token, word_space_size)
+    parsed_object, object_err = _parse_word_token(object_token, word_space_size)
+
+    if color_err or object_err:
+        notes = "; ".join(err for err in [color_err, object_err] if err)
+        return BacktraceResult(
+            color_token_input=str(color_token).strip() if color_token is not None else "",
+            object_token_input=str(object_token).strip() if object_token is not None else "",
+            decoded_color_label="UNKNOWN",
+            decoded_object_label="UNKNOWN",
+            decoded_concept_label="UNKNOWN",
+            decoded_concept_key="unknown",
+            seen_in_training=None,
+            decode_quality="invalid",
+            notes=notes,
+        )
+
+    slot_maps = build_slot_id_maps(agent, color_names, object_types)
+    color_label, color_quality, color_note = _decode_slot_token(parsed_color, slot_maps["color_label_to_token"])
+    object_label, object_quality, object_note = _decode_slot_token(parsed_object, slot_maps["object_label_to_token"])
+
+    decoded_key = f"{color_label}_{object_label}" if color_label != "unknown" and object_label != "unknown" else "unknown"
+    decoded_label = (
+        f"{color_label.title()} {object_label.title()}"
+        if color_label != "unknown" and object_label != "unknown"
+        else "UNKNOWN"
+    )
+
+    quality_rank = {"invalid": 3, "ambiguous": 2, "nearest": 1, "exact": 0}
+    decode_quality = color_quality
+    if quality_rank.get(object_quality, 0) > quality_rank.get(decode_quality, 0):
+        decode_quality = object_quality
+
+    notes_parts = [part for part in [f"color:{color_note}" if color_note else "", f"object:{object_note}" if object_note else ""] if part]
+    clean_decode = decode_quality in {"exact", "nearest"} and decoded_key != "unknown"
+    seen_in_training = None if not clean_decode else f"{color_label}:{object_label}" in seen_pairs
+
+    if seen_in_training is False:
+        notes_parts.append("decoded concept is unseen in training (novel composition)")
+
+    return BacktraceResult(
+        color_token_input=f"{parsed_color:04d}",
+        object_token_input=f"{parsed_object:04d}",
+        decoded_color_label=color_label.title() if color_label != "unknown" else "UNKNOWN",
+        decoded_object_label=object_label.title() if object_label != "unknown" else "UNKNOWN",
+        decoded_concept_label=decoded_label,
+        decoded_concept_key=decoded_key,
+        seen_in_training=seen_in_training,
+        decode_quality=decode_quality,
+        notes="; ".join(notes_parts) if notes_parts else "",
+    )
+
+
 def train_factored_language(
     adam: LanguageAgent,
     eve: LanguageAgent,
@@ -350,6 +521,7 @@ def train_factored_language(
     object_types: list[str],
     cfg: TrainingConfig,
     rng: random.Random | None = None,
+    holdout_pairs: list[tuple[str, str]] | None = None,
 ) -> FactoredTrainingResult:
     rng = rng or random
 
@@ -357,11 +529,28 @@ def train_factored_language(
     object_semantics = [object_key(obj) for obj in object_types]
     all_semantics = color_semantics + object_semantics
 
-    concept_specs = [
+    all_concept_specs = [
         (color, obj, color_key(color), object_key(obj))
         for color in color_names
         for obj in object_types
     ]
+    holdout_pair_set = {
+        (color_name.strip().lower(), object_type.strip().lower())
+        for color_name, object_type in (holdout_pairs or [])
+        if color_name and object_type
+    }
+    train_specs = [
+        spec for spec in all_concept_specs if (spec[0], spec[1]) not in holdout_pair_set
+    ]
+    if not train_specs:
+        raise ValueError("No trainable concepts remain after applying holdout pairs.")
+
+    seen_pair_set = {(color_name, object_type) for color_name, object_type, _, _ in train_specs}
+    heldout_pair_set = {
+        (color_name, object_type)
+        for color_name, object_type, _, _ in all_concept_specs
+        if (color_name, object_type) not in seen_pair_set
+    }
 
     debug_rows: list[dict] = []
     history_lines: list[str] = []
@@ -369,7 +558,7 @@ def train_factored_language(
     converged_step: int | None = None
 
     for step in range(cfg.learning_steps):
-        color_name, object_type, color_sem, object_sem = rng.choice(concept_specs)
+        color_name, object_type, color_sem, object_sem = rng.choice(train_specs)
 
         adam_color, eve_color, reward_color, distance_color, noise_color = language_alignment_step(
             adam, eve, color_sem, cfg, step, rng
@@ -480,6 +669,7 @@ def train_factored_language(
                     "color_name": color_name,
                     "concept": f"{color_name}_{object_type}",
                     "concept_label": f"{color_name.title()} {object_type.title()}",
+                    "was_trained": (color_name, object_type) in seen_pair_set,
                     "syntax_order": "color_object",
                     "adam_phrase_ids": adam_phrase,
                     "eve_phrase_ids": eve_phrase,
@@ -501,6 +691,8 @@ def train_factored_language(
         "all_slot_consensus": all_slot_consensus,
         "exact_target": achieved_unique == target_unique,
         "converged_step": converged_step,
+        "trained_phrase_count": len(seen_pair_set),
+        "heldout_phrase_count": len(heldout_pair_set),
     }
 
     history_lines.append("-" * 72)
@@ -509,6 +701,10 @@ def train_factored_language(
         f"target_unique={target_unique} achieved_unique={achieved_unique} "
         f"phrase_consensus={all_phrase_consensus}"
     )
+    history_lines.append(f"Holdouts: trained={len(seen_pair_set)} heldout={len(heldout_pair_set)}")
+
+    seen_pairs = [f"{color_name}:{object_type}" for color_name, object_type in sorted(seen_pair_set)]
+    heldout_pairs = [f"{color_name}:{object_type}" for color_name, object_type in sorted(heldout_pair_set)]
 
     return FactoredTrainingResult(
         slot_rows=slot_rows,
@@ -517,6 +713,8 @@ def train_factored_language(
         debug_rows=debug_rows,
         converged_step=converged_step,
         history_lines=history_lines,
+        seen_pairs=seen_pairs,
+        heldout_pairs=heldout_pairs,
     )
 
 
@@ -589,6 +787,8 @@ def write_lexicon_logs(
     slot_lexicon: list[dict] | None = None,
     phrase_lexicon: list[dict] | None = None,
     metrics: dict | None = None,
+    seen_pairs: list[str] | None = None,
+    holdout_pairs: list[str] | None = None,
 ) -> dict[str, str]:
     out_dir = Path(artifacts_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -600,6 +800,8 @@ def write_lexicon_logs(
     slot_lexicon = slot_lexicon or []
     phrase_lexicon = phrase_lexicon or []
     metrics = metrics or {}
+    seen_pairs = seen_pairs or []
+    holdout_pairs = holdout_pairs or []
     results_by_object = results_by_object or {}
 
     payload = {
@@ -619,6 +821,8 @@ def write_lexicon_logs(
             "consensus_streak_target": cfg.consensus_streak_target,
         },
         "metrics": metrics,
+        "seen_pairs": seen_pairs,
+        "holdout_pairs": holdout_pairs,
         "slot_lexicon": slot_lexicon,
         "phrase_lexicon": phrase_lexicon,
         # Backwards-compatible alias.
@@ -642,6 +846,10 @@ def write_lexicon_logs(
             f"achieved_unique={metrics.get('achieved_unique', 'n/a')} "
             f"phrase_consensus={metrics.get('all_phrase_consensus', 'n/a')}"
         )
+    if seen_pairs or holdout_pairs:
+        print_lines.append(f"Holdouts: trained={len(seen_pairs)} heldout={len(holdout_pairs)}")
+        if holdout_pairs:
+            print_lines.append("Compositional backtrace can decode held-out combinations.")
 
     if slot_lexicon:
         print_lines.append("Base Factored Lexicon")
@@ -662,8 +870,9 @@ def write_lexicon_logs(
             adam_text = row.get("adam_phrase_ids", row.get("adam_word", "----"))
             eve_text = row.get("eve_phrase_ids", row.get("eve_word", "----"))
             shared_text = row.get("shared_phrase_ids", row.get("shared_word", "NO_CONSENSUS"))
+            trained_flag = "T" if row.get("was_trained", True) else "H"
             print_lines.append(
-                f"{concept_name:<20} Adam:{adam_text:<14} Eve:{eve_text:<14} Shared:{shared_text}"
+                f"[{trained_flag}] {concept_name:<16} Adam:{adam_text:<14} Eve:{eve_text:<14} Shared:{shared_text}"
             )
 
     repro_print_json_path.write_text(
@@ -673,6 +882,8 @@ def write_lexicon_logs(
                 "mode": mode,
                 "syntax_order": syntax_order,
                 "metrics": metrics,
+                "seen_pairs": seen_pairs,
+                "holdout_pairs": holdout_pairs,
                 "slot_lexicon": slot_lexicon,
                 "phrase_lexicon": phrase_lexicon,
                 "lexicon": lexicon_rows,
