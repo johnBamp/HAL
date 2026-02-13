@@ -1,5 +1,12 @@
+import settings
 from navigation import astar_path, compute_visible_cells, select_reachable_target
-from main import _adjacent_cells, _build_blocked_cells, _collect_find_candidates
+from main import (
+    _adjacent_cells,
+    _build_blocked_cells,
+    _collect_find_candidates,
+    choose_agent_cells,
+    generate_cave_layout,
+)
 
 
 def test_astar_finds_shortest_path_in_empty_grid():
@@ -139,3 +146,50 @@ def test_return_target_selection_reaches_adam_adjacency():
     assert target in candidates
     assert path is not None
     assert path[-1] == target
+
+
+def test_blocked_cells_include_walls():
+    objects_by_cell = {(2, 2): object()}
+    walls = {(1, 1), (3, 3)}
+    blocked = _build_blocked_cells(
+        objects_by_cell=objects_by_cell,
+        adam_cell=(4, 4),
+        eve_cell=(0, 0),
+        wall_cells=walls,
+    )
+    assert (1, 1) in blocked
+    assert (3, 3) in blocked
+    assert (2, 2) in blocked
+    assert (0, 0) not in blocked
+
+
+def test_blocked_cells_never_unblock_walls():
+    walls = {(5, 5)}
+    blocked = _build_blocked_cells(
+        objects_by_cell={},
+        adam_cell=(4, 4),
+        eve_cell=(0, 0),
+        wall_cells=walls,
+        passable_cells={(5, 5)},
+    )
+    assert (5, 5) in blocked
+
+
+def test_cave_layout_returns_partition():
+    walkable, walls = generate_cave_layout()
+    assert walkable
+    assert walkable.isdisjoint(walls)
+    assert len(walkable) + len(walls) == settings.TILE_COUNT_X * settings.TILE_COUNT_Y
+
+
+def test_choose_agent_cells_uses_walkable_cells_only():
+    class Agent:
+        def __init__(self):
+            self.cell = None
+            self.rotation_deg = 0.0
+
+    agents = [Agent(), Agent()]
+    walkable = {(1, 1), (1, 5), (6, 1), (6, 6)}
+    choose_agent_cells(agents, walkable_cells=walkable)
+    assert agents[0].cell in walkable
+    assert agents[1].cell in walkable

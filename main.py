@@ -29,15 +29,19 @@ VISUAL_TILE_HEIGHT = settings.LOGICAL_TILE_HEIGHT * settings.VISUAL_SCALE
 
 GRID_STRIDE_X = VISUAL_TILE_WIDTH + settings.TILE_GAP
 GRID_STRIDE_Y = VISUAL_TILE_HEIGHT + settings.TILE_GAP
-GRID_PIXEL_WIDTH = settings.TILE_COUNT_X * VISUAL_TILE_WIDTH + (settings.TILE_COUNT_X - 1) * settings.TILE_GAP
-GRID_PIXEL_HEIGHT = settings.TILE_COUNT_Y * VISUAL_TILE_HEIGHT + (settings.TILE_COUNT_Y - 1) * settings.TILE_GAP
+
+VIEW_PIXEL_WIDTH = settings.VIEW_TILES_X * VISUAL_TILE_WIDTH + (settings.VIEW_TILES_X - 1) * settings.TILE_GAP
+VIEW_PIXEL_HEIGHT = settings.VIEW_TILES_Y * VISUAL_TILE_HEIGHT + (settings.VIEW_TILES_Y - 1) * settings.TILE_GAP
+GRID_PIXEL_WIDTH = VIEW_PIXEL_WIDTH
+GRID_PIXEL_HEIGHT = VIEW_PIXEL_HEIGHT
 
 GRID_LEFT = settings.ORIGIN_X
 GRID_TOP = settings.ORIGIN_Y + settings.INVENTORY_BAR_HEIGHT
 
-MAP_WIDTH = settings.ORIGIN_X * 2 + GRID_PIXEL_WIDTH
+MAP_WIDTH = settings.ORIGIN_X * 2 + VIEW_PIXEL_WIDTH
+MAP_HEIGHT = settings.ORIGIN_Y + settings.INVENTORY_BAR_HEIGHT + VIEW_PIXEL_HEIGHT + settings.ORIGIN_Y
 SCREEN_WIDTH = MAP_WIDTH + settings.PANEL_WIDTH
-SCREEN_HEIGHT = settings.ORIGIN_Y + settings.INVENTORY_BAR_HEIGHT + GRID_PIXEL_HEIGHT + settings.ORIGIN_Y
+SCREEN_HEIGHT = MAP_HEIGHT
 
 INVENTORY_SLOT_SIZE = 56
 INVENTORY_SLOT_GAP = 14
@@ -66,36 +70,62 @@ class WorldAgent:
         self.cell = None
         self.rotation_deg = 0.0
         self.vision_slice = []
+        self.subjective_world = {}
+        self.subjective_prior = {}
+        self.subjective_classes = []
+        self.subjective_observed = set()
+        self.subjective_last_seen = {}
 
 
 class Tile:
-    def __init__(self, pygame, grid_x, grid_y):
+    def __init__(self, pygame, grid_x, grid_y, is_wall=False):
         self.grid_x = grid_x
         self.grid_y = grid_y
-        self.x, self.y = cell_to_screen(grid_x, grid_y)
+        self.is_wall = is_wall
 
-        self.base_surface = pygame.Surface((settings.LOGICAL_TILE_WIDTH, settings.LOGICAL_TILE_HEIGHT))
-        self.base_surface.fill((20, 20, 20))
+        self.floor_surface = pygame.Surface((VISUAL_TILE_WIDTH, VISUAL_TILE_HEIGHT), pygame.SRCALPHA)
+        self.floor_surface.fill((0, 0, 0, 0))
         pygame.draw.rect(
-            self.base_surface,
-            (110, 110, 110),
-            pygame.Rect(0, 0, settings.LOGICAL_TILE_WIDTH, settings.LOGICAL_TILE_HEIGHT),
+            self.floor_surface,
+            (64, 68, 76, 255),
+            pygame.Rect(0, 0, VISUAL_TILE_WIDTH, VISUAL_TILE_HEIGHT),
             width=1,
         )
 
-    def draw(self, pygame, screen, fill_color=None):
-        tile_surface = self.base_surface.copy()
-        if fill_color is not None:
-            tile_surface.fill(fill_color)
-            pygame.draw.rect(
-                tile_surface,
-                (235, 235, 235),
-                pygame.Rect(0, 0, settings.LOGICAL_TILE_WIDTH, settings.LOGICAL_TILE_HEIGHT),
-                width=1,
-            )
+        self.wall_surface = pygame.Surface((VISUAL_TILE_WIDTH, VISUAL_TILE_HEIGHT))
+        self.wall_surface.fill((58, 50, 40))
+        pygame.draw.rect(
+            self.wall_surface,
+            (84, 74, 60),
+            pygame.Rect(0, 0, VISUAL_TILE_WIDTH, VISUAL_TILE_HEIGHT),
+            width=1,
+        )
+        inner = pygame.Rect(3, 3, max(2, VISUAL_TILE_WIDTH - 6), max(2, VISUAL_TILE_HEIGHT - 6))
+        pygame.draw.rect(self.wall_surface, (44, 38, 30), inner)
+        pygame.draw.rect(self.wall_surface, (70, 62, 50), inner, width=1)
+        pygame.draw.line(self.wall_surface, (34, 30, 24), (2, 2), (VISUAL_TILE_WIDTH - 3, VISUAL_TILE_HEIGHT - 3), 1)
+        pygame.draw.line(self.wall_surface, (34, 30, 24), (VISUAL_TILE_WIDTH - 3, 2), (2, VISUAL_TILE_HEIGHT - 3), 1)
 
-        scaled = pygame.transform.scale(tile_surface, (VISUAL_TILE_WIDTH, VISUAL_TILE_HEIGHT))
-        screen.blit(scaled, (self.x, self.y))
+    def draw(self, pygame, screen, camera_origin, fill_color=None):
+        tile_x, tile_y = cell_to_screen(self.grid_x, self.grid_y, camera_origin)
+        if self.is_wall:
+            tile_surface = self.wall_surface.copy()
+            if fill_color is not None:
+                mixed = tuple((base + tint) // 2 for base, tint in zip((58, 50, 40), fill_color))
+                tile_surface.fill(mixed)
+                inner = pygame.Rect(3, 3, max(2, VISUAL_TILE_WIDTH - 6), max(2, VISUAL_TILE_HEIGHT - 6))
+                pygame.draw.rect(tile_surface, tuple(max(0, c - 18) for c in mixed), inner)
+                pygame.draw.rect(tile_surface, tuple(min(255, c + 10) for c in mixed), inner, width=1)
+                pygame.draw.rect(tile_surface, tuple(min(255, c + 18) for c in mixed), pygame.Rect(0, 0, VISUAL_TILE_WIDTH, VISUAL_TILE_HEIGHT), width=1)
+        else:
+            tile_surface = self.floor_surface.copy()
+            edge = fill_color if fill_color is not None else (64, 68, 76)
+            center = tuple(max(0, min(255, int(c * 0.22))) for c in edge)
+            inner = pygame.Rect(3, 3, max(2, VISUAL_TILE_WIDTH - 6), max(2, VISUAL_TILE_HEIGHT - 6))
+            pygame.draw.rect(tile_surface, (center[0], center[1], center[2], 90), inner)
+            pygame.draw.rect(tile_surface, edge, pygame.Rect(0, 0, VISUAL_TILE_WIDTH, VISUAL_TILE_HEIGHT), width=1)
+
+        screen.blit(tile_surface, (tile_x, tile_y))
 
 
 class WorldObject:
@@ -106,8 +136,8 @@ class WorldObject:
         self.concept = concept
         self.sprite = sprite
 
-    def draw(self, pygame, screen):
-        tile_x, tile_y = cell_to_screen(*self.cell)
+    def draw(self, pygame, screen, camera_origin):
+        tile_x, tile_y = cell_to_screen(*self.cell, camera_origin)
         scaled = pygame.transform.scale(self.sprite, (VISUAL_TILE_WIDTH, VISUAL_TILE_HEIGHT))
         screen.blit(scaled, (tile_x, tile_y))
 
@@ -124,21 +154,57 @@ def is_backtrace_enabled(mode):
     return mode == "factored"
 
 
-def cell_to_screen(grid_x, grid_y):
-    x = GRID_LEFT + grid_x * GRID_STRIDE_X
-    y = GRID_TOP + grid_y * GRID_STRIDE_Y
+def camera_limits():
+    max_x = max(0, settings.TILE_COUNT_X - settings.VIEW_TILES_X)
+    max_y = max(0, settings.TILE_COUNT_Y - settings.VIEW_TILES_Y)
+    return max_x, max_y
+
+
+def clamp_camera_origin(camera_origin):
+    max_x, max_y = camera_limits()
+    cx = max(0, min(max_x, int(camera_origin[0])))
+    cy = max(0, min(max_y, int(camera_origin[1])))
+    return (cx, cy)
+
+
+def pan_camera(camera_origin, dx, dy):
+    return clamp_camera_origin((camera_origin[0] + dx, camera_origin[1] + dy))
+
+
+def center_camera_on_cell(cell):
+    target_x = cell[0] - (settings.VIEW_TILES_X // 2)
+    target_y = cell[1] - (settings.VIEW_TILES_Y // 2)
+    return clamp_camera_origin((target_x, target_y))
+
+
+def viewport_bounds(camera_origin):
+    x0 = camera_origin[0]
+    y0 = camera_origin[1]
+    x1 = min(settings.TILE_COUNT_X, x0 + settings.VIEW_TILES_X)
+    y1 = min(settings.TILE_COUNT_Y, y0 + settings.VIEW_TILES_Y)
+    return x0, y0, x1, y1
+
+
+def is_in_viewport(cell, camera_origin):
+    x0, y0, x1, y1 = viewport_bounds(camera_origin)
+    return x0 <= cell[0] < x1 and y0 <= cell[1] < y1
+
+
+def cell_to_screen(grid_x, grid_y, camera_origin=(0, 0)):
+    x = GRID_LEFT + (grid_x - camera_origin[0]) * GRID_STRIDE_X
+    y = GRID_TOP + (grid_y - camera_origin[1]) * GRID_STRIDE_Y
     return x, y
 
 
-def screen_to_cell(px, py):
+def screen_to_cell(px, py, camera_origin=(0, 0)):
     rel_x = px - GRID_LEFT
     rel_y = py - GRID_TOP
     if rel_x < 0 or rel_y < 0:
         return None
 
-    gx = rel_x // GRID_STRIDE_X
-    gy = rel_y // GRID_STRIDE_Y
-    if gx >= settings.TILE_COUNT_X or gy >= settings.TILE_COUNT_Y:
+    gx = rel_x // GRID_STRIDE_X + camera_origin[0]
+    gy = rel_y // GRID_STRIDE_Y + camera_origin[1]
+    if gx >= settings.TILE_COUNT_X or gy >= settings.TILE_COUNT_Y or gx < 0 or gy < 0:
         return None
 
     if (rel_x % GRID_STRIDE_X) >= VISUAL_TILE_WIDTH:
@@ -147,6 +213,93 @@ def screen_to_cell(px, py):
         return None
 
     return int(gx), int(gy)
+
+
+def _count_neighboring_walls(x, y, walls):
+    count = 0
+    for ny in range(y - 1, y + 2):
+        for nx in range(x - 1, x + 2):
+            if nx == x and ny == y:
+                continue
+            if not is_in_bounds(nx, ny):
+                count += 1
+                continue
+            if (nx, ny) in walls:
+                count += 1
+    return count
+
+
+def _smooth_cave_walls(walls):
+    next_walls = set()
+    for y in range(settings.TILE_COUNT_Y):
+        for x in range(settings.TILE_COUNT_X):
+            cell = (x, y)
+            border = x == 0 or y == 0 or x == settings.TILE_COUNT_X - 1 or y == settings.TILE_COUNT_Y - 1
+            if border:
+                next_walls.add(cell)
+                continue
+            neighbors = _count_neighboring_walls(x, y, walls)
+            if cell in walls:
+                if neighbors >= settings.CAVE_SURVIVE_LIMIT:
+                    next_walls.add(cell)
+            elif neighbors > settings.CAVE_BIRTH_LIMIT:
+                next_walls.add(cell)
+    return next_walls
+
+
+def _largest_walkable_component(walkable_cells):
+    if not walkable_cells:
+        return set()
+
+    remaining = set(walkable_cells)
+    best = set()
+    while remaining:
+        start = remaining.pop()
+        stack = [start]
+        component = {start}
+        while stack:
+            cx, cy = stack.pop()
+            for nx, ny in ((cx + 1, cy), (cx - 1, cy), (cx, cy + 1), (cx, cy - 1)):
+                nxt = (nx, ny)
+                if nxt in remaining:
+                    remaining.remove(nxt)
+                    component.add(nxt)
+                    stack.append(nxt)
+        if len(component) > len(best):
+            best = component
+    return best
+
+
+def generate_cave_layout(rng=None):
+    rng = rng or random.Random()
+    all_cells = {
+        (x, y)
+        for y in range(settings.TILE_COUNT_Y)
+        for x in range(settings.TILE_COUNT_X)
+    }
+
+    walls = set()
+    for y in range(settings.TILE_COUNT_Y):
+        for x in range(settings.TILE_COUNT_X):
+            cell = (x, y)
+            border = x == 0 or y == 0 or x == settings.TILE_COUNT_X - 1 or y == settings.TILE_COUNT_Y - 1
+            if border or rng.random() < settings.CAVE_FILL_PROB:
+                walls.add(cell)
+
+    for _ in range(max(0, settings.CAVE_SMOOTH_STEPS)):
+        walls = _smooth_cave_walls(walls)
+
+    walkable = all_cells - walls
+    walkable = _largest_walkable_component(walkable)
+
+    if len(walkable) < 2:
+        walkable = {
+            (x, y)
+            for y in range(1, max(1, settings.TILE_COUNT_Y - 1))
+            for x in range(1, max(1, settings.TILE_COUNT_X - 1))
+        }
+    walls = all_cells - walkable
+    return walkable, walls
 
 
 def shade_color(rgb, factor):
@@ -223,30 +376,54 @@ def get_sprite(pygame, sprite_cache, kind, color_name):
     return sprite
 
 
-def generate_map(pygame):
-    return [Tile(pygame, x, y) for y in range(settings.TILE_COUNT_Y) for x in range(settings.TILE_COUNT_X)]
+def generate_map(pygame, wall_cells):
+    tiles = {}
+    for y in range(settings.TILE_COUNT_Y):
+        for x in range(settings.TILE_COUNT_X):
+            cell = (x, y)
+            tiles[cell] = Tile(pygame, x, y, is_wall=(cell in wall_cells))
+    return tiles
 
 
-def choose_agent_cells(agents):
+def _manhattan(a, b):
+    return abs(a[0] - b[0]) + abs(a[1] - b[1])
+
+
+def choose_agent_cells(agents, walkable_cells, rng=None):
     if len(agents) < 2:
         return
 
-    middle_y = settings.TILE_COUNT_Y // 2
-    left_x = max(0, min(2, settings.TILE_COUNT_X - 1))
-    right_x = max(0, min(settings.TILE_COUNT_X - 3, settings.TILE_COUNT_X - 1))
+    walkable = list(walkable_cells)
+    if not walkable:
+        raise ValueError("No walkable cells available for agent spawn.")
 
-    agents[0].cell = (left_x, middle_y)
-    agents[1].cell = (right_x, middle_y)
+    rng = rng or random.Random()
+    sample_count = min(96, len(walkable))
+    sample_cells = rng.sample(walkable, sample_count) if sample_count < len(walkable) else walkable
 
-    agents[0].rotation_deg = 0.0
-    agents[1].rotation_deg = 180.0
+    best_pair = (walkable[0], walkable[0])
+    best_dist = -1
+    for src in sample_cells:
+        dst = max(walkable, key=lambda cell: _manhattan(src, cell))
+        dist = _manhattan(src, dst)
+        if dist > best_dist:
+            best_pair = (src, dst)
+            best_dist = dist
+
+    agents[0].cell = best_pair[0]
+    agents[1].cell = best_pair[1]
+
+    dx = agents[1].cell[0] - agents[0].cell[0]
+    dy = agents[1].cell[1] - agents[0].cell[1]
+    agents[0].rotation_deg = math.degrees(math.atan2(dy, dx))
+    agents[1].rotation_deg = math.degrees(math.atan2(-dy, -dx))
 
 
 def is_in_bounds(x, y):
     return 0 <= x < settings.TILE_COUNT_X and 0 <= y < settings.TILE_COUNT_Y
 
 
-def raycast_visible_cells(agent):
+def raycast_visible_cells(agent, opaque=None):
     return compute_visible_cells(
         origin_cell=agent.cell,
         rotation_deg=agent.rotation_deg,
@@ -255,6 +432,7 @@ def raycast_visible_cells(agent):
         num_vision_rays=settings.NUM_VISION_RAYS,
         width=settings.TILE_COUNT_X,
         height=settings.TILE_COUNT_Y,
+        opaque=opaque,
     )
 
 
@@ -317,9 +495,9 @@ def classify_vision_cells(vision_slice):
             cell["catagories"] = categories
 
 
-def draw_agent(pygame, screen, agent):
+def draw_agent(pygame, screen, agent, camera_origin):
     gx, gy = agent.cell
-    tile_x, tile_y = cell_to_screen(gx, gy)
+    tile_x, tile_y = cell_to_screen(gx, gy, camera_origin)
 
     margin = max(2, VISUAL_TILE_WIDTH // 6)
     agent_rect = pygame.Rect(
@@ -339,10 +517,10 @@ def draw_agent(pygame, screen, agent):
     pygame.draw.line(screen, (255, 255, 255), (cx, cy), (ex, ey), 2)
 
 
-def draw_carried_object(pygame, screen, carrier, carried_object, sprite_cache):
+def draw_carried_object(pygame, screen, carrier, carried_object, sprite_cache, camera_origin):
     if carried_object is None:
         return
-    tile_x, tile_y = cell_to_screen(*carrier.cell)
+    tile_x, tile_y = cell_to_screen(*carrier.cell, camera_origin)
     sprite = get_sprite(pygame, sprite_cache, carried_object.kind, carried_object.color_name)
     size = max(10, int(min(VISUAL_TILE_WIDTH, VISUAL_TILE_HEIGHT) * 0.56))
     scaled = pygame.transform.scale(sprite, (size, size))
@@ -380,10 +558,15 @@ def _decode_eve_command_action(command_state, token):
     return max(ordered_actions, key=lambda action: row[action])
 
 
-def _build_blocked_cells(objects_by_cell, adam_cell, eve_cell, passable_cells=None):
+def _build_blocked_cells(objects_by_cell, adam_cell, eve_cell, wall_cells=None, passable_cells=None):
     blocked = set(objects_by_cell.keys())
+    if wall_cells:
+        blocked |= set(wall_cells)
     if passable_cells:
-        blocked -= set(passable_cells)
+        passable = set(passable_cells)
+        if wall_cells:
+            passable -= set(wall_cells)
+        blocked -= passable
     blocked.add(adam_cell)
     blocked.discard(eve_cell)
     return blocked
@@ -397,9 +580,159 @@ def _all_grid_cells():
     ]
 
 
+def _normalize_distribution(distribution):
+    total = sum(max(0.0, value) for value in distribution.values())
+    if total <= 1e-12:
+        count = max(1, len(distribution))
+        uniform = 1.0 / count
+        return {key: uniform for key in distribution}
+    return {key: max(0.0, value) / total for key, value in distribution.items()}
+
+
+def _concept_universe(color_names, object_types):
+    return [concept_key(object_type, color_name) for object_type in object_types for color_name in color_names]
+
+
+def _initialize_subjective_world(agent, color_names, object_types):
+    concept_classes = _concept_universe(color_names, object_types)
+    classes = concept_classes + ["__none__"]
+    prior = 1.0 / max(1, len(classes))
+
+    agent.subjective_classes = classes
+    agent.subjective_prior = {label: prior for label in classes}
+    agent.subjective_world = {cell: dict(agent.subjective_prior) for cell in _all_grid_cells()}
+    agent.subjective_observed = set()
+    agent.subjective_last_seen = {cell: -10 ** 9 for cell in _all_grid_cells()}
+
+
+def _bayes_observation_update(prior, observed_label, classes):
+    hit = settings.BELIEF_OBS_HIT
+    none_hit = settings.BELIEF_OBS_NONE
+
+    if observed_label == "__none__":
+        remaining = max(0.0, 1.0 - none_hit)
+        per_other = remaining / max(1, len(classes) - 1)
+        likelihood = {label: (none_hit if label == "__none__" else per_other) for label in classes}
+    else:
+        remaining = max(0.0, 1.0 - hit)
+        none_share = min(remaining, 1.0 - hit)
+        other_count = max(1, len(classes) - 2)
+        per_other = max(0.0, remaining - none_share) / other_count
+        likelihood = {}
+        for label in classes:
+            if label == observed_label:
+                likelihood[label] = hit
+            elif label == "__none__":
+                likelihood[label] = none_share
+            else:
+                likelihood[label] = per_other
+
+    posterior = {label: prior.get(label, 0.0) * likelihood[label] for label in classes}
+    return _normalize_distribution(posterior)
+
+
+def _observe_subjective_cell(agent, cell, observed_label):
+    prior = agent.subjective_world.get(cell, dict(agent.subjective_prior))
+    posterior = _bayes_observation_update(prior, observed_label, agent.subjective_classes)
+    agent.subjective_world[cell] = posterior
+    agent.subjective_observed.add(cell)
+
+
+def _predict_subjective_world(agent, visible_cells, current_frame):
+    drift = settings.BELIEF_DRIFT
+    if drift <= 0:
+        return
+    for cell, distribution in agent.subjective_world.items():
+        if cell in visible_cells:
+            continue
+        age = current_frame - agent.subjective_last_seen.get(cell, -10 ** 9)
+        stale = age >= settings.BELIEF_STALE_AFTER_FRAMES
+        stale_revert = settings.BELIEF_STALE_REVERT if stale else 0.0
+        for label in agent.subjective_classes:
+            base = distribution[label]
+            toward_prior = agent.subjective_prior[label]
+            value = (1.0 - drift) * base + (drift * toward_prior)
+            if stale_revert > 0:
+                value = (1.0 - stale_revert) * value + stale_revert * toward_prior
+            distribution[label] = value
+
+
+def _update_subjective_world(agent, visible_cells, objects_by_cell, current_frame):
+    if not agent.subjective_world:
+        return
+    _predict_subjective_world(agent, visible_cells, current_frame)
+    for cell in visible_cells:
+        observed = objects_by_cell.get(cell)
+        if observed is None:
+            observed_label = "__none__"
+        else:
+            observed_label = concept_key(observed.kind, observed.color_name)
+        _observe_subjective_cell(agent, cell, observed_label)
+        agent.subjective_last_seen[cell] = current_frame
+
+
+def _belief_probability(agent, cell, concept_label):
+    distribution = agent.subjective_world.get(cell)
+    if not distribution:
+        return 0.0
+    return distribution.get(concept_label, 0.0)
+
+
+def _belief_candidates_for_concept(agent, concept_label, adam_visible, adam_cell, outside_only, current_frame):
+    scored = []
+    for cell in agent.subjective_observed:
+        if outside_only and cell in adam_visible:
+            continue
+        if cell == adam_cell:
+            continue
+        probability = _belief_probability(agent, cell, concept_label)
+        if probability < settings.BELIEF_TARGET_THRESHOLD:
+            continue
+        none_prob = agent.subjective_world[cell].get("__none__", 0.0)
+        age = current_frame - agent.subjective_last_seen.get(cell, -10 ** 9)
+        stale_bonus = 0.12 if age >= settings.BELIEF_STALE_AFTER_FRAMES else 0.0
+        score = probability - (0.35 * none_prob) + stale_bonus
+        scored.append((score, cell))
+    scored.sort(reverse=True, key=lambda item: item[0])
+    return [cell for _, cell in scored]
+
+
+def _frontier_targets(agent, blocked_cells, adam_visible, outside_only, current_frame):
+    frontiers = []
+    stale_first = []
+    for cell in _all_grid_cells():
+        if cell == agent.cell:
+            continue
+        in_observed = cell in agent.subjective_observed
+        if in_observed:
+            age = current_frame - agent.subjective_last_seen.get(cell, -10 ** 9)
+            if age < settings.BELIEF_STALE_AFTER_FRAMES:
+                continue
+        if cell in blocked_cells:
+            continue
+        if outside_only and cell in adam_visible:
+            continue
+        for neighbor in _adjacent_cells(cell):
+            if not is_in_bounds(*neighbor):
+                continue
+            if neighbor in agent.subjective_observed:
+                if in_observed:
+                    stale_first.append(cell)
+                else:
+                    frontiers.append(cell)
+                break
+    return stale_first + frontiers
+
+
 def _adjacent_cells(cell):
     x, y = cell
     return [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)]
+
+
+def _max_fetch_steps():
+    # Scale fetch budget with map size so a single command can finish on large caves.
+    area_scaled = (settings.TILE_COUNT_X + settings.TILE_COUNT_Y) * 10
+    return max(settings.COMMAND_MAX_FETCH_STEPS, area_scaled)
 
 
 def _collect_find_candidates(objects_by_cell, target_color, target_object, adam_visible, outside_only):
@@ -438,13 +771,16 @@ def _finalize_command_feedback(command_state, reward, eve_in_los, outcome):
     command_state["active_path"] = []
     command_state["path_steps"] = 0
     command_state["fetch_steps"] = 0
+    command_state["move_cooldown"] = 0
     command_state["current_intent"] = None
     command_state["current_action"] = None
     command_state["current_phase"] = "idle"
     command_state["current_target_cell"] = None
     command_state["return_target_cell"] = None
+    command_state["search_mode"] = None
     command_state["pending_find_target"] = None
     command_state["carried_object"] = None
+    command_state["command_active"] = False
 
 
 def _finalize_visibility_command(command_state, eve_in_los):
@@ -502,11 +838,13 @@ def _decode_find_target(command_state, eve, color_token, object_token, mode):
     return color_name, object_name
 
 
-def _maybe_drop_carried_object(command_state, objects_by_cell, eve, adam):
+def _maybe_drop_carried_object(command_state, objects_by_cell, eve, adam, wall_cells):
     carried = command_state.get("carried_object")
     if carried is None:
         return
     if eve.cell == adam.cell:
+        return
+    if eve.cell in wall_cells:
         return
     if eve.cell in objects_by_cell:
         return
@@ -515,9 +853,20 @@ def _maybe_drop_carried_object(command_state, objects_by_cell, eve, adam):
     command_state["carried_object"] = None
 
 
-def _begin_return_phase(command_state, adam, eve, objects_by_cell):
+def _scan_surroundings(agent, objects_by_cell, wall_cells):
+    # Rotate through configured headings to update subjective beliefs without moving.
+    union_visible = set()
+    original_heading = agent.rotation_deg
+    for heading in settings.SCAN_ROTATIONS:
+        agent.rotation_deg = heading
+        union_visible |= raycast_visible_cells(agent, opaque=wall_cells)
+    agent.rotation_deg = original_heading
+    _update_subjective_world(agent, union_visible, objects_by_cell, current_frame=agent.subjective_last_seen.get("__clock__", 0))
+
+
+def _begin_return_phase(command_state, adam, eve, objects_by_cell, wall_cells):
     adjacent = [cell for cell in _adjacent_cells(adam.cell) if is_in_bounds(*cell)]
-    blocked_cells = _build_blocked_cells(objects_by_cell, adam.cell, eve.cell)
+    blocked_cells = _build_blocked_cells(objects_by_cell, adam.cell, eve.cell, wall_cells=wall_cells)
     candidates = [cell for cell in adjacent if cell not in blocked_cells]
     if not candidates:
         return False
@@ -539,7 +888,7 @@ def _begin_return_phase(command_state, adam, eve, objects_by_cell):
     return True
 
 
-def _begin_fetch_phase(command_state, adam, eve, adam_visible, objects_by_cell, mode):
+def _begin_fetch_phase(command_state, adam, eve, adam_visible, objects_by_cell, wall_cells, mode):
     target_color = command_state.get("current_target_color")
     target_object = command_state.get("current_target_object")
 
@@ -574,36 +923,114 @@ def _begin_fetch_phase(command_state, adam, eve, adam_visible, objects_by_cell, 
 
     command_state["current_target_color"] = decoded_color
     command_state["current_target_object"] = decoded_object
-    candidates = _collect_find_candidates(
-        objects_by_cell,
-        decoded_color,
-        decoded_object,
-        adam_visible=adam_visible,
-        outside_only=settings.COMMAND_FIND_TARGET_OUTSIDE_LOS,
-    )
-    if not candidates:
-        return False, "no_target"
+    target_concept = concept_key(decoded_object, decoded_color)
 
-    blocked_cells = _build_blocked_cells(objects_by_cell, adam.cell, eve.cell, passable_cells=candidates)
-    target, path = select_reachable_target(
-        start=eve.cell,
-        candidates=candidates,
-        blocked=blocked_cells,
-        width=settings.TILE_COUNT_X,
-        height=settings.TILE_COUNT_Y,
-        tie_break="nearest",
-    )
-    if target is None or path is None:
-        return False, "no_path_to_target"
+    outside_preferences = [settings.COMMAND_FIND_TARGET_OUTSIDE_LOS]
+    if settings.COMMAND_FIND_TARGET_OUTSIDE_LOS:
+        outside_preferences.append(False)
 
-    command_state["current_phase"] = "navigate_to_target"
-    command_state["current_target_cell"] = target
-    command_state["active_path"] = path[1:] if len(path) > 1 else []
-    command_state["fetch_steps"] = 0
-    return True, ""
+    for outside_only in outside_preferences:
+        direct_candidates = _collect_find_candidates(
+            objects_by_cell,
+            target_color=decoded_color,
+            target_object=decoded_object,
+            adam_visible=adam_visible,
+            outside_only=outside_only,
+        )
+        direct_candidates = [cell for cell in direct_candidates if cell not in wall_cells]
+        if direct_candidates:
+            blocked_direct = _build_blocked_cells(
+                objects_by_cell,
+                adam.cell,
+                eve.cell,
+                wall_cells=wall_cells,
+                passable_cells=direct_candidates,
+            )
+            target, path = select_reachable_target(
+                start=eve.cell,
+                candidates=direct_candidates,
+                blocked=blocked_direct,
+                width=settings.TILE_COUNT_X,
+                height=settings.TILE_COUNT_Y,
+                tie_break="nearest",
+            )
+            if target is not None and path is not None:
+                command_state["current_phase"] = "navigate_to_target"
+                command_state["search_mode"] = "direct_outside_los" if outside_only else "direct_anywhere"
+                command_state["current_target_cell"] = target
+                command_state["active_path"] = path[1:] if len(path) > 1 else []
+                command_state["fetch_steps"] = 0
+                return True, ""
+
+        blocked_base = _build_blocked_cells(objects_by_cell, adam.cell, eve.cell, wall_cells=wall_cells)
+        belief_candidates = _belief_candidates_for_concept(
+            eve,
+            concept_label=target_concept,
+            adam_visible=adam_visible,
+            adam_cell=adam.cell,
+            outside_only=outside_only,
+            current_frame=command_state["frame"],
+        )
+        belief_candidates = [cell for cell in belief_candidates if cell not in wall_cells]
+        if belief_candidates:
+            blocked_cells = _build_blocked_cells(
+                objects_by_cell,
+                adam.cell,
+                eve.cell,
+                wall_cells=wall_cells,
+                passable_cells=belief_candidates,
+            )
+            target, path = select_reachable_target(
+                start=eve.cell,
+                candidates=belief_candidates,
+                blocked=blocked_cells,
+                width=settings.TILE_COUNT_X,
+                height=settings.TILE_COUNT_Y,
+                tie_break="nearest",
+            )
+            if target is not None and path is not None:
+                command_state["current_phase"] = "navigate_to_target"
+                command_state["search_mode"] = "belief_outside_los" if outside_only else "belief_anywhere"
+                command_state["current_target_cell"] = target
+                command_state["active_path"] = path[1:] if len(path) > 1 else []
+                command_state["fetch_steps"] = 0
+                if settings.SCAN_AT_FRONTIER:
+                    _scan_surroundings(eve, objects_by_cell, wall_cells)
+                return True, ""
+
+        frontier_cells = _frontier_targets(
+            eve,
+            blocked_cells=blocked_base,
+            adam_visible=adam_visible,
+            outside_only=outside_only,
+            current_frame=command_state["frame"],
+        )
+        if not frontier_cells:
+            continue
+
+        frontier_target, frontier_path = select_reachable_target(
+            start=eve.cell,
+            candidates=frontier_cells,
+            blocked=blocked_base,
+            width=settings.TILE_COUNT_X,
+            height=settings.TILE_COUNT_Y,
+            tie_break="nearest",
+        )
+        if frontier_target is None or frontier_path is None:
+            continue
+
+        command_state["current_phase"] = "searching"
+        command_state["search_mode"] = "frontier_outside_los" if outside_only else "frontier_anywhere"
+        command_state["current_target_cell"] = frontier_target
+        command_state["active_path"] = frontier_path[1:] if len(frontier_path) > 1 else []
+        command_state["fetch_steps"] = 0
+        return True, ""
+
+    return False, "search_exhausted"
 
 
-def _start_command_execution(command_state, token, adam, eve, adam_visible, objects_by_cell, rng):
+def _start_command_execution(command_state, token, adam, eve, adam_visible, objects_by_cell, wall_cells, rng):
+    command_state["command_active"] = True
     command_state["spoken_token"] = token
     command_state["speech_timer"] = settings.SPEECH_BUBBLE_FRAMES
     command_state["current_intent"] = command_state["token_to_intent"].get(token, "come")
@@ -643,6 +1070,7 @@ def _start_command_execution(command_state, token, adam, eve, adam_visible, obje
             eve=eve,
             adam_visible=adam_visible,
             objects_by_cell=objects_by_cell,
+            wall_cells=wall_cells,
             mode=command_state["mode"],
         )
         if not ok:
@@ -650,13 +1078,41 @@ def _start_command_execution(command_state, token, adam, eve, adam_visible, obje
             return
 
         if command_state["current_phase"] == "navigate_to_target" and eve.cell == command_state["current_target_cell"]:
+            observed_obj = objects_by_cell.get(eve.cell)
+            expected_color = command_state.get("current_target_color")
+            expected_object = command_state.get("current_target_object")
+            if observed_obj is not None:
+                observed_label = concept_key(observed_obj.kind, observed_obj.color_name)
+            else:
+                observed_label = "__none__"
+            _observe_subjective_cell(eve, eve.cell, observed_label)
+
+            target_match = (
+                observed_obj is not None
+                and observed_obj.kind == expected_object
+                and observed_obj.color_name == expected_color
+            )
+            if not target_match:
+                ok, failure = _begin_fetch_phase(
+                    command_state=command_state,
+                    adam=adam,
+                    eve=eve,
+                    adam_visible=adam_visible,
+                    objects_by_cell=objects_by_cell,
+                    wall_cells=wall_cells,
+                    mode=command_state["mode"],
+                )
+                if not ok:
+                    _finalize_find_command(command_state, eve.cell in adam_visible, False, failure)
+                return
+
             target_obj = objects_by_cell.pop(eve.cell, None)
             if target_obj is None:
                 _finalize_find_command(command_state, eve.cell in adam_visible, False, "missing_target")
                 return
             command_state["carried_object"] = target_obj
-            if not _begin_return_phase(command_state, adam, eve, objects_by_cell):
-                _maybe_drop_carried_object(command_state, objects_by_cell, eve, adam)
+            if not _begin_return_phase(command_state, adam, eve, objects_by_cell, wall_cells):
+                _maybe_drop_carried_object(command_state, objects_by_cell, eve, adam, wall_cells)
                 _finalize_find_command(command_state, eve.cell in adam_visible, False, "no_path_to_return")
                 return
             if command_state["current_phase"] == "carrying_return" and not command_state["active_path"]:
@@ -669,7 +1125,7 @@ def _start_command_execution(command_state, token, adam, eve, adam_visible, obje
                     return
     else:
         command_state["spoken_text"] = format_word(token)
-        blocked_cells = _build_blocked_cells(objects_by_cell, adam.cell, eve.cell)
+        blocked_cells = _build_blocked_cells(objects_by_cell, adam.cell, eve.cell, wall_cells=wall_cells)
         _, path = _choose_eve_target_path(
             command_state["current_action"],
             eve.cell,
@@ -684,8 +1140,10 @@ def _start_command_execution(command_state, token, adam, eve, adam_visible, obje
             _finalize_visibility_command(command_state, eve.cell in adam_visible)
 
 
-def update_command_state(command_state, adam, eve, adam_visible, objects_by_cell, rng):
+def update_command_state(command_state, adam, eve, adam_visible, objects_by_cell, wall_cells, rng):
     command_state["frame"] += 1
+    eve.subjective_last_seen["__clock__"] = command_state["frame"]
+    adam.subjective_last_seen["__clock__"] = command_state["frame"]
 
     if command_state["speech_timer"] > 0:
         command_state["speech_timer"] -= 1
@@ -695,9 +1153,108 @@ def update_command_state(command_state, adam, eve, adam_visible, objects_by_cell
     if command_state["move_cooldown"] > 0:
         command_state["move_cooldown"] -= 1
 
+    def handle_find_no_path():
+        phase = command_state.get("current_phase")
+        if phase == "navigate_to_target":
+            observed_obj = objects_by_cell.get(eve.cell)
+            expected_color = command_state.get("current_target_color")
+            expected_object = command_state.get("current_target_object")
+            if observed_obj is not None:
+                observed_label = concept_key(observed_obj.kind, observed_obj.color_name)
+            else:
+                observed_label = "__none__"
+            _observe_subjective_cell(eve, eve.cell, observed_label)
+            eve.subjective_last_seen[eve.cell] = command_state["frame"]
+
+            target_match = (
+                observed_obj is not None
+                and observed_obj.kind == expected_object
+                and observed_obj.color_name == expected_color
+            )
+            if not target_match:
+                ok, failure = _begin_fetch_phase(
+                    command_state=command_state,
+                    adam=adam,
+                    eve=eve,
+                    adam_visible=adam_visible,
+                    objects_by_cell=objects_by_cell,
+                    wall_cells=wall_cells,
+                    mode=command_state["mode"],
+                )
+                if not ok:
+                    _finalize_find_command(command_state, eve.cell in adam_visible, False, failure)
+                return
+
+            target_obj = objects_by_cell.pop(eve.cell, None)
+            if target_obj is None:
+                _finalize_find_command(command_state, eve.cell in adam_visible, False, "missing_target")
+                return
+            command_state["carried_object"] = target_obj
+            if not _begin_return_phase(command_state, adam, eve, objects_by_cell, wall_cells):
+                _maybe_drop_carried_object(command_state, objects_by_cell, eve, adam, wall_cells)
+                _finalize_find_command(command_state, eve.cell in adam_visible, False, "no_path_to_return")
+                return
+            if not command_state["active_path"]:
+                carried = command_state.get("carried_object")
+                if carried is not None and eve.cell not in objects_by_cell and eve.cell != adam.cell:
+                    carried.cell = eve.cell
+                    objects_by_cell[eve.cell] = carried
+                    command_state["carried_object"] = None
+                    _finalize_find_command(command_state, eve.cell in adam_visible, True, "fetched")
+                else:
+                    _finalize_find_command(command_state, eve.cell in adam_visible, False, "drop_failed")
+            return
+
+        if phase == "searching":
+            if settings.SCAN_AT_FRONTIER:
+                _scan_surroundings(eve, objects_by_cell, wall_cells)
+            ok, failure = _begin_fetch_phase(
+                command_state=command_state,
+                adam=adam,
+                eve=eve,
+                adam_visible=adam_visible,
+                objects_by_cell=objects_by_cell,
+                wall_cells=wall_cells,
+                mode=command_state["mode"],
+            )
+            if not ok:
+                _finalize_find_command(command_state, eve.cell in adam_visible, False, failure)
+            return
+
+        if phase == "carrying_return":
+            carried = command_state.get("carried_object")
+            if carried is None:
+                _finalize_find_command(command_state, eve.cell in adam_visible, False, "missing_carry")
+                return
+            if eve.cell == adam.cell or eve.cell in objects_by_cell:
+                adj = [cell for cell in _adjacent_cells(adam.cell) if is_in_bounds(*cell)]
+                blocked = set(objects_by_cell.keys()) | {adam.cell} | set(wall_cells)
+                free = [c for c in adj if c not in blocked]
+                if free:
+                    carried.cell = free[0]
+                    objects_by_cell[free[0]] = carried
+                    command_state["carried_object"] = None
+                    _finalize_find_command(command_state, eve.cell in adam_visible, True, "fetched")
+                    return
+                _maybe_drop_carried_object(command_state, objects_by_cell, eve, adam, wall_cells)
+                _finalize_find_command(command_state, eve.cell in adam_visible, False, "drop_failed")
+                return
+            carried.cell = eve.cell
+            objects_by_cell[eve.cell] = carried
+            command_state["carried_object"] = None
+            _finalize_find_command(command_state, eve.cell in adam_visible, True, "fetched")
+            return
+
+        _finalize_find_command(command_state, eve.cell in adam_visible, False, "stalled")
+
     if command_state["active_path"]:
         if command_state["move_cooldown"] == 0:
-            eve.cell = command_state["active_path"].pop(0)
+            next_cell = command_state["active_path"].pop(0)
+            dx = next_cell[0] - eve.cell[0]
+            dy = next_cell[1] - eve.cell[1]
+            if dx != 0 or dy != 0:
+                eve.rotation_deg = math.degrees(math.atan2(dy, dx))
+            eve.cell = next_cell
             command_state["path_steps"] += 1
             if command_state.get("current_intent") == "find":
                 command_state["fetch_steps"] += 1
@@ -705,56 +1262,33 @@ def update_command_state(command_state, adam, eve, adam_visible, objects_by_cell
             else:
                 command_state["move_cooldown"] = 2
 
+            # quick scan every few steps to refresh belief during motion
+            if command_state["path_steps"] % max(1, len(settings.SCAN_ROTATIONS)) == 0:
+                _scan_surroundings(eve, objects_by_cell, wall_cells)
+
             if command_state.get("current_intent") == "find":
-                if command_state["fetch_steps"] >= settings.COMMAND_MAX_FETCH_STEPS:
-                    _maybe_drop_carried_object(command_state, objects_by_cell, eve, adam)
+                if command_state["fetch_steps"] >= _max_fetch_steps():
+                    _maybe_drop_carried_object(command_state, objects_by_cell, eve, adam, wall_cells)
                     _finalize_find_command(command_state, eve.cell in adam_visible, False, "max_steps")
                     return
 
-                if command_state["current_phase"] == "navigate_to_target":
-                    reached_target = eve.cell == command_state["current_target_cell"]
-                    if reached_target:
-                        target_obj = objects_by_cell.pop(eve.cell, None)
-                        if target_obj is None:
-                            _finalize_find_command(command_state, eve.cell in adam_visible, False, "missing_target")
-                            return
-                        command_state["carried_object"] = target_obj
-                        if not _begin_return_phase(command_state, adam, eve, objects_by_cell):
-                            _maybe_drop_carried_object(command_state, objects_by_cell, eve, adam)
-                            _finalize_find_command(command_state, eve.cell in adam_visible, False, "no_path_to_return")
-                            return
-                        if not command_state["active_path"]:
-                            carried = command_state.get("carried_object")
-                            if carried is not None and eve.cell not in objects_by_cell and eve.cell != adam.cell:
-                                carried.cell = eve.cell
-                                objects_by_cell[eve.cell] = carried
-                                command_state["carried_object"] = None
-                                _finalize_find_command(command_state, eve.cell in adam_visible, True, "fetched")
-                                return
-                    elif not command_state["active_path"]:
-                        _finalize_find_command(command_state, eve.cell in adam_visible, False, "no_path_to_target")
-                        return
-                elif command_state["current_phase"] == "carrying_return":
-                    if not command_state["active_path"]:
-                        carried = command_state.get("carried_object")
-                        if carried is None:
-                            _finalize_find_command(command_state, eve.cell in adam_visible, False, "missing_carry")
-                            return
-                        if eve.cell == adam.cell or eve.cell in objects_by_cell:
-                            _maybe_drop_carried_object(command_state, objects_by_cell, eve, adam)
-                            _finalize_find_command(command_state, eve.cell in adam_visible, False, "drop_failed")
-                            return
-                        carried.cell = eve.cell
-                        objects_by_cell[eve.cell] = carried
-                        command_state["carried_object"] = None
-                        _finalize_find_command(command_state, eve.cell in adam_visible, True, "fetched")
-                        return
+            if command_state.get("current_intent") == "find":
+                if not command_state["active_path"]:
+                    handle_find_no_path()
+                    return
             else:
                 if (
                     not command_state["active_path"]
                     or command_state["path_steps"] >= settings.MAX_COMMAND_PATH_STEPS
                 ):
                     _finalize_visibility_command(command_state, eve.cell in adam_visible)
+        return
+
+    if command_state.get("command_active"):
+        if command_state.get("current_intent") == "find":
+            handle_find_no_path()
+        else:
+            _finalize_visibility_command(command_state, eve.cell in adam_visible)
         return
 
     token = None
@@ -777,7 +1311,7 @@ def update_command_state(command_state, adam, eve, adam_visible, objects_by_cell
         return
 
     command_state["last_issue_frame"] = command_state["frame"]
-    _start_command_execution(command_state, token, adam, eve, adam_visible, objects_by_cell, rng)
+    _start_command_execution(command_state, token, adam, eve, adam_visible, objects_by_cell, wall_cells, rng)
 
 
 def build_palette_slots(pygame, object_types):
@@ -840,6 +1374,14 @@ def draw_color_dropdown(pygame, screen, small_font, palette_slots, color_names, 
             screen.blit(txt, (rect.x + 24, rect.y + 6))
 
 
+def get_delete_zone_rect(pygame):
+    width = 116
+    height = 30
+    x = MAP_WIDTH - width - 14
+    y = settings.ORIGIN_Y + 6
+    return pygame.Rect(x, y, width, height)
+
+
 def draw_inventory_bar(
     pygame,
     screen,
@@ -850,6 +1392,8 @@ def draw_inventory_bar(
     color_names,
     selected_color,
     dropdown_open,
+    dragging_active=False,
+    delete_hover=False,
 ):
     bar_rect = pygame.Rect(0, 0, MAP_WIDTH, GRID_TOP)
     pygame.draw.rect(screen, (14, 17, 22), bar_rect)
@@ -859,6 +1403,17 @@ def draw_inventory_bar(
 
     title = font.render("Object Bar", True, (235, 240, 252))
     screen.blit(title, (GRID_LEFT + 6, settings.ORIGIN_Y + 2))
+
+    delete_rect = get_delete_zone_rect(pygame)
+    delete_bg = (88, 46, 46) if delete_hover else (56, 34, 34)
+    delete_border = (196, 96, 96) if dragging_active else (122, 82, 82)
+    pygame.draw.rect(screen, delete_bg, delete_rect, border_radius=6)
+    pygame.draw.rect(screen, delete_border, delete_rect, width=2, border_radius=6)
+    delete_label = "Drop Here To Delete"
+    delete_text = small_font.render(delete_label, True, (240, 214, 214))
+    dx = delete_rect.x + (delete_rect.width - delete_text.get_width()) // 2
+    dy = delete_rect.y + (delete_rect.height - delete_text.get_height()) // 2
+    screen.blit(delete_text, (dx, dy))
 
     for slot in palette_slots:
         kind = slot["kind"]
@@ -885,7 +1440,16 @@ def _format_cell(cell):
     return f"({cell[0]},{cell[1]})"
 
 
-def compute_drag_perception(dragging_kind, dragging_color, drag_pos, agents, visible_by_agent, mode):
+def compute_drag_perception(
+    dragging_kind,
+    dragging_color,
+    drag_pos,
+    agents,
+    visible_by_agent,
+    mode,
+    camera_origin,
+    walkable_cells,
+):
     if dragging_kind is None or dragging_color is None:
         return {
             "kind": None,
@@ -897,9 +1461,13 @@ def compute_drag_perception(dragging_kind, dragging_color, drag_pos, agents, vis
             "syntax": "color_object",
         }
 
-    hover_cell = screen_to_cell(*drag_pos)
+    hover_cell = screen_to_cell(*drag_pos, camera_origin)
     preview_cell = None
-    if hover_cell is not None and not any(agent.cell == hover_cell for agent in agents):
+    if (
+        hover_cell is not None
+        and hover_cell in walkable_cells
+        and not any(agent.cell == hover_cell for agent in agents)
+    ):
         preview_cell = hover_cell
 
     rows = []
@@ -1343,6 +1911,7 @@ def draw_lexicon_panel(
             f"Target: {concept_label(command_state.get('current_target_object') or selected_object, command_state.get('current_target_color') or selected_color)}",
             f"Decoded: {command_state.get('decoded_target_label', '-')}",
             f"Fetch phase: {command_state.get('current_phase', 'idle')}",
+            f"Search mode: {command_state.get('search_mode') or '-'}",
             f"Carrying: {command_state.get('carried_object').color_name.title() + ' ' + command_state.get('carried_object').kind.title() if command_state.get('carried_object') else 'None'}",
             f"Last reward: {command_state.get('last_reward') if command_state.get('last_reward') is not None else 'n/a'}",
             f"Visibility: {command_state.get('last_visibility', 'n/a')}  Outcome: {command_state.get('last_outcome', 'n/a')}",
@@ -1649,14 +2218,18 @@ def run_visualization(
     font = pygame.font.SysFont("Menlo", 16)
     small_font = pygame.font.SysFont("Menlo", 14)
 
-    tiles = generate_map(pygame)
+    walkable_cells, wall_cells = generate_cave_layout()
+    tiles = generate_map(pygame, wall_cells)
     sprite_cache = {}
     palette_slots = build_palette_slots(pygame, object_types)
 
     adam = WorldAgent("Adam", (180, 70, 70), adam_lang)
     eve = WorldAgent("Eve", (70, 130, 210), eve_lang)
     agents = [adam, eve]
-    choose_agent_cells(agents)
+    choose_agent_cells(agents, walkable_cells)
+    camera_origin = center_camera_on_cell(adam.cell)
+    _initialize_subjective_world(adam, color_names, object_types)
+    _initialize_subjective_world(eve, color_names, object_types)
 
     objects_by_cell = {}
     selected_color = color_names[0] if color_names else "red"
@@ -1664,6 +2237,9 @@ def run_visualization(
     dragging_kind = None
     dragging_color = None
     drag_pos = (0, 0)
+    dragging_source = None
+    dragging_world_object = None
+    dragging_origin_cell = None
 
     slot_scroll_px = 0
     phrase_scroll_px = 0
@@ -1718,6 +2294,7 @@ def run_visualization(
         "current_target_object": None,
         "current_target_cell": None,
         "return_target_cell": None,
+        "search_mode": None,
         "decoded_target_label": "-",
         "decoded_target_quality": "n/a",
         "decoded_target_notes": "",
@@ -1944,28 +2521,101 @@ def run_visualization(
                         dragging_kind = slot["kind"]
                         dragging_color = selected_color
                         drag_pos = event.pos
+                        dragging_source = "palette"
+                        dragging_world_object = None
+                        dragging_origin_cell = None
                         break
+                else:
+                    clicked_cell = screen_to_cell(*event.pos, camera_origin)
+                    if clicked_cell is not None:
+                        existing_object = objects_by_cell.get(clicked_cell)
+                        if existing_object is not None:
+                            dragging_kind = existing_object.kind
+                            dragging_color = existing_object.color_name
+                            drag_pos = event.pos
+                            dragging_source = "world"
+                            dragging_world_object = objects_by_cell.pop(clicked_cell)
+                            dragging_origin_cell = clicked_cell
             elif event.type == pygame.MOUSEMOTION and dragging_kind is not None:
                 drag_pos = event.pos
             elif event.type == pygame.MOUSEBUTTONUP and event.button == 1 and dragging_kind is not None:
                 drag_pos = event.pos
-                drop_cell = screen_to_cell(*event.pos)
-                if drop_cell is not None:
-                    occupied_by_agent = any(agent.cell == drop_cell for agent in agents)
-                    if not occupied_by_agent:
-                        concept = concept_key(dragging_kind, dragging_color)
-                        sprite = get_sprite(pygame, sprite_cache, dragging_kind, dragging_color)
-                        objects_by_cell[drop_cell] = WorldObject(
-                            kind=dragging_kind,
-                            color_name=dragging_color,
-                            cell=drop_cell,
-                            concept=concept,
-                            sprite=sprite,
-                        )
+                delete_rect = get_delete_zone_rect(pygame)
+
+                if dragging_source == "world":
+                    dropped = False
+                    if delete_rect.collidepoint(event.pos):
+                        dropped = True
+                    else:
+                        drop_cell = screen_to_cell(*event.pos, camera_origin)
+                        if drop_cell is not None:
+                            occupied_by_agent = any(agent.cell == drop_cell for agent in agents)
+                            occupied_by_object = drop_cell in objects_by_cell
+                            walkable_drop = drop_cell in walkable_cells
+                            if (
+                                walkable_drop
+                                and not occupied_by_agent
+                                and not occupied_by_object
+                                and dragging_world_object is not None
+                            ):
+                                dragging_world_object.cell = drop_cell
+                                dragging_world_object.concept = concept_key(
+                                    dragging_world_object.kind,
+                                    dragging_world_object.color_name,
+                                )
+                                dragging_world_object.sprite = get_sprite(
+                                    pygame,
+                                    sprite_cache,
+                                    dragging_world_object.kind,
+                                    dragging_world_object.color_name,
+                                )
+                                objects_by_cell[drop_cell] = dragging_world_object
+                                dropped = True
+                    if not dropped and dragging_world_object is not None and dragging_origin_cell is not None:
+                        if dragging_origin_cell not in objects_by_cell:
+                            dragging_world_object.cell = dragging_origin_cell
+                            objects_by_cell[dragging_origin_cell] = dragging_world_object
+                else:
+                    drop_cell = screen_to_cell(*event.pos, camera_origin)
+                    if drop_cell is not None:
+                        occupied_by_agent = any(agent.cell == drop_cell for agent in agents)
+                        occupied_by_object = drop_cell in objects_by_cell
+                        if drop_cell in walkable_cells and not occupied_by_agent and not occupied_by_object:
+                            concept = concept_key(dragging_kind, dragging_color)
+                            sprite = get_sprite(pygame, sprite_cache, dragging_kind, dragging_color)
+                            objects_by_cell[drop_cell] = WorldObject(
+                                kind=dragging_kind,
+                                color_name=dragging_color,
+                                cell=drop_cell,
+                                concept=concept,
+                                sprite=sprite,
+                            )
                 dragging_kind = None
                 dragging_color = None
+                dragging_source = None
+                dragging_world_object = None
+                dragging_origin_cell = None
+
+        keys = pygame.key.get_pressed()
+        pan_dx = 0
+        pan_dy = 0
+        if keys[pygame.K_a]:
+            pan_dx -= settings.CAMERA_SPEED_CELLS
+        if keys[pygame.K_d]:
+            pan_dx += settings.CAMERA_SPEED_CELLS
+        if keys[pygame.K_w]:
+            pan_dy -= settings.CAMERA_SPEED_CELLS
+        if keys[pygame.K_s]:
+            pan_dy += settings.CAMERA_SPEED_CELLS
+        if pan_dx or pan_dy:
+            camera_origin = pan_camera(camera_origin, pan_dx, pan_dy)
 
         screen.fill((8, 8, 8))
+        delete_hover = (
+            dragging_kind is not None
+            and dragging_source == "world"
+            and get_delete_zone_rect(pygame).collidepoint(drag_pos)
+        )
         draw_inventory_bar(
             pygame,
             screen,
@@ -1976,15 +2626,24 @@ def run_visualization(
             color_names,
             selected_color,
             color_dropdown_open,
+            dragging_active=(dragging_kind is not None and dragging_source == "world"),
+            delete_hover=delete_hover,
         )
 
-        adam_visible_for_command = raycast_visible_cells(adam)
+        pre_visible_by_agent = {}
+        for agent in agents:
+            pre_visible_by_agent[agent.name] = raycast_visible_cells(agent, opaque=wall_cells)
+        for agent in agents:
+            _update_subjective_world(agent, pre_visible_by_agent[agent.name], objects_by_cell, command_state["frame"])
+
+        adam_visible_for_command = pre_visible_by_agent.get(adam.name, set())
         update_command_state(
             command_state=command_state,
             adam=adam,
             eve=eve,
             adam_visible=adam_visible_for_command,
             objects_by_cell=objects_by_cell,
+            wall_cells=wall_cells,
             rng=command_rng,
         )
 
@@ -1994,35 +2653,46 @@ def run_visualization(
         all_visible = set()
         visible_by_agent = {}
         for agent in agents:
-            visible_cells = raycast_visible_cells(agent)
+            visible_cells = raycast_visible_cells(agent, opaque=wall_cells)
             visible_by_agent[agent.name] = visible_cells
             all_visible |= visible_cells
             build_vision_slice(agent, visible_cells, occupancy_names, objects_by_cell)
             classify_vision_cells(agent.vision_slice)
 
-        for tile in tiles:
-            cell = (tile.grid_x, tile.grid_y)
-            highlight = (40, 40, 40)
-            if cell in all_visible:
-                highlight = (75, 75, 75)
-            if cell in occupancy_colors:
-                highlight = occupancy_colors[cell]
-            tile.draw(pygame=pygame, screen=screen, fill_color=highlight)
+        x0, y0, x1, y1 = viewport_bounds(camera_origin)
+        for y in range(y0, y1):
+            for x in range(x0, x1):
+                cell = (x, y)
+                tile = tiles[cell]
+                if cell in wall_cells:
+                    highlight = (78, 66, 50)
+                    if cell in all_visible:
+                        highlight = (118, 102, 78)
+                else:
+                    highlight = (44, 48, 56)
+                    if cell in all_visible:
+                        highlight = (90, 102, 128)
+                if cell in occupancy_colors:
+                    highlight = occupancy_colors[cell]
+                tile.draw(pygame=pygame, screen=screen, camera_origin=camera_origin, fill_color=highlight)
 
         for obj in objects_by_cell.values():
-            obj.draw(pygame=pygame, screen=screen)
+            if is_in_viewport(obj.cell, camera_origin):
+                obj.draw(pygame=pygame, screen=screen, camera_origin=camera_origin)
 
         for agent in agents:
-            draw_agent(pygame, screen, agent)
+            if is_in_viewport(agent.cell, camera_origin):
+                draw_agent(pygame, screen, agent, camera_origin)
         draw_carried_object(
             pygame,
             screen,
             carrier=eve,
             carried_object=command_state.get("carried_object"),
             sprite_cache=sprite_cache,
+            camera_origin=camera_origin,
         )
 
-        adam_x, adam_y = cell_to_screen(*adam.cell)
+        adam_x, adam_y = cell_to_screen(*adam.cell, camera_origin)
         bubble_anchor_x = adam_x + VISUAL_TILE_WIDTH // 2
         bubble_anchor_y = adam_y
         if command_state.get("speech_timer", 0) > 0:
@@ -2075,6 +2745,8 @@ def run_visualization(
             agents,
             visible_by_agent,
             mode,
+            camera_origin,
+            walkable_cells,
         )
 
         slot_scroll_px, phrase_scroll_px = draw_lexicon_panel(

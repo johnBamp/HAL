@@ -104,8 +104,12 @@ def compute_visible_cells(
     num_vision_rays: int,
     width: int,
     height: int,
+    opaque: set[Cell] | None = None,
 ) -> set[Cell]:
-    """Raycast visible cells using the same semantics as the pygame runtime."""
+    """Raycast visible cells using the same semantics as the pygame runtime.
+
+    Stops rays when they hit opaque cells (walls).
+    """
     cx, cy = origin_cell
     ox = cx + 0.5
     oy = cy + 0.5
@@ -132,6 +136,8 @@ def compute_visible_cells(
                 break
 
             visible.add((tx, ty))
+            if opaque and (tx, ty) in opaque:
+                break
             distance += step
 
     return visible

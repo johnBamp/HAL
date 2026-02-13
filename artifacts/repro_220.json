@@ -1,5 +1,5 @@
 {
-  "seed": 11,
+  "seed": null,
   "mode": "factored",
   "syntax_order": "color_object",
   "config": {
@@ -20,9 +20,9 @@
     "all_phrase_consensus": true,
     "all_slot_consensus": true,
     "exact_target": true,
-    "converged_step": 39,
-    "trained_phrase_count": 13,
-    "heldout_phrase_count": 1
+    "converged_step": 127,
+    "trained_phrase_count": 14,
+    "heldout_phrase_count": 0
   },
   "seen_pairs": [
     "blue:apple",
@@ -32,6 +32,7 @@
     "indigo:apple",
     "indigo:mushroom",
     "orange:apple",
+    "orange:mushroom",
     "red:apple",
     "red:mushroom",
     "violet:apple",
@@ -39,13 +40,11 @@
     "yellow:apple",
     "yellow:mushroom"
   ],
-  "holdout_pairs": [
-    "orange:mushroom"
-  ],
+  "holdout_pairs": [],
   "command_tokens": {
-    "come_token": 6389,
-    "leave_token": 2427,
-    "find_token": 3491
+    "come_token": 2178,
+    "leave_token": 1067,
+    "find_token": 9100
   },
   "command_training": {
     "episodes": 1200,
@@ -56,19 +55,19 @@
       "find": 1.0
     },
     "eve_action_q": {
-      "6389": {
+      "2178": {
         "approach": 0.9999999999999998,
-        "avoid": -0.998568283174976,
-        "fetch": -0.9952905085328633
+        "avoid": -0.9845085917191323,
+        "fetch": -0.9988259922034803
       },
-      "2427": {
-        "approach": -0.9988259922034803,
+      "1067": {
+        "approach": -0.9968333379374973,
         "avoid": 0.9999999999999998,
         "fetch": -0.9929959972231756
       },
-      "3491": {
-        "approach": -0.9997073369139945,
-        "avoid": -0.9968333379374973,
+      "9100": {
+        "approach": -0.9978707364291731,
+        "avoid": -0.998254003871922,
         "fetch": 0.9999999999999998
       }
     }
@@ -79,90 +78,90 @@
       "slot_label": "Red",
       "semantic_key": "color:red",
       "concept_label": "Color:Red",
-      "adam_word": "4789",
-      "eve_word": "4789",
-      "shared_word": "4789",
-      "converged_step": 39
+      "adam_word": "7105",
+      "eve_word": "7105",
+      "shared_word": "7105",
+      "converged_step": 127
     },
     {
       "slot_type": "color",
       "slot_label": "Orange",
       "semantic_key": "color:orange",
       "concept_label": "Color:Orange",
-      "adam_word": "2713",
-      "eve_word": "2713",
-      "shared_word": "2713",
-      "converged_step": 39
+      "adam_word": "2056",
+      "eve_word": "2056",
+      "shared_word": "2056",
+      "converged_step": 127
     },
     {
       "slot_type": "color",
       "slot_label": "Yellow",
       "semantic_key": "color:yellow",
       "concept_label": "Color:Yellow",
-      "adam_word": "3769",
-      "eve_word": "3769",
-      "shared_word": "3769",
-      "converged_step": 39
+      "adam_word": "8888",
+      "eve_word": "8888",
+      "shared_word": "8888",
+      "converged_step": 127
     },
     {
       "slot_type": "color",
       "slot_label": "Green",
       "semantic_key": "color:green",
       "concept_label": "Color:Green",
-      "adam_word": "7619",
-      "eve_word": "7619",
-      "shared_word": "7619",
-      "converged_step": 39
+      "adam_word": "5706",
+      "eve_word": "5706",
+      "shared_word": "5706",
+      "converged_step": 127
     },
     {
       "slot_type": "color",
       "slot_label": "Blue",
       "semantic_key": "color:blue",
       "concept_label": "Color:Blue",
-      "adam_word": "4759",
-      "eve_word": "4759",
-      "shared_word": "4759",
-      "converged_step": 39
+      "adam_word": "4136",
+      "eve_word": "4136",
+      "shared_word": "4136",
+      "converged_step": 127
     },
     {
       "slot_type": "color",
       "slot_label": "Indigo",
       "semantic_key": "color:indigo",
       "concept_label": "Color:Indigo",
-      "adam_word": "8426",
-      "eve_word": "8426",
-      "shared_word": "8426",
-      "converged_step": 39
+      "adam_word": "5782",
+      "eve_word": "5782",
+      "shared_word": "5782",
+      "converged_step": 127
     },
     {
       "slot_type": "color",
       "slot_label": "Violet",
       "semantic_key": "color:violet",
       "concept_label": "Color:Violet",
-      "adam_word": "7129",
-      "eve_word": "7129",
-      "shared_word": "7129",
-      "converged_step": 39
+      "adam_word": "4786",
+      "eve_word": "4786",
+      "shared_word": "4786",
+      "converged_step": 127
     },
     {
       "slot_type": "object",
       "slot_label": "Apple",
       "semantic_key": "object:apple",
       "concept_label": "Object:Apple",
-      "adam_word": "3996",
-      "eve_word": "3996",
-      "shared_word": "3996",
-      "converged_step": 39
+      "adam_word": "4316",
+      "eve_word": "4316",
+      "shared_word": "4316",
+      "converged_step": 127
     },
     {
       "slot_type": "object",
       "slot_label": "Mushroom",
       "semantic_key": "object:mushroom",
       "concept_label": "Object:Mushroom",
-      "adam_word": "6837",
-      "eve_word": "6837",
-      "shared_word": "6837",
-      "converged_step": 39
+      "adam_word": "4500",
+      "eve_word": "4500",
+      "shared_word": "4500",
+      "converged_step": 127
     }
   ],
   "phrase_lexicon": [
@@ -173,10 +172,10 @@
       "concept_label": "Red Apple",
       "was_trained": true,
       "syntax_order": "color_object",
-      "adam_phrase_ids": "[4789, 3996]",
-      "eve_phrase_ids": "[4789, 3996]",
-      "shared_phrase_ids": "[4789, 3996]",
-      "converged_step": 39
+      "adam_phrase_ids": "[7105, 4316]",
+      "eve_phrase_ids": "[7105, 4316]",
+      "shared_phrase_ids": "[7105, 4316]",
+      "converged_step": 127
     },
     {
       "object_type": "mushroom",
@@ -185,10 +184,10 @@
       "concept_label": "Red Mushroom",
       "was_trained": true,
       "syntax_order": "color_object",
-      "adam_phrase_ids": "[4789, 6837]",
-      "eve_phrase_ids": "[4789, 6837]",
-      "shared_phrase_ids": "[4789, 6837]",
-      "converged_step": 39
+      "adam_phrase_ids": "[7105, 4500]",
+      "eve_phrase_ids": "[7105, 4500]",
+      "shared_phrase_ids": "[7105, 4500]",
+      "converged_step": 127
     },
     {
       "object_type": "apple",
@@ -197,22 +196,22 @@
       "concept_label": "Orange Apple",
       "was_trained": true,
       "syntax_order": "color_object",
-      "adam_phrase_ids": "[2713, 3996]",
-      "eve_phrase_ids": "[2713, 3996]",
-      "shared_phrase_ids": "[2713, 3996]",
-      "converged_step": 39
+      "adam_phrase_ids": "[2056, 4316]",
+      "eve_phrase_ids": "[2056, 4316]",
+      "shared_phrase_ids": "[2056, 4316]",
+      "converged_step": 127
     },
     {
       "object_type": "mushroom",
       "color_name": "orange",
       "concept": "orange_mushroom",
       "concept_label": "Orange Mushroom",
-      "was_trained": false,
+      "was_trained": true,
       "syntax_order": "color_object",
-      "adam_phrase_ids": "[2713, 6837]",
-      "eve_phrase_ids": "[2713, 6837]",
-      "shared_phrase_ids": "[2713, 6837]",
-      "converged_step": 39
+      "adam_phrase_ids": "[2056, 4500]",
+      "eve_phrase_ids": "[2056, 4500]",
+      "shared_phrase_ids": "[2056, 4500]",
+      "converged_step": 127
     },
     {
       "object_type": "apple",
@@ -221,10 +220,10 @@
       "concept_label": "Yellow Apple",
       "was_trained": true,
       "syntax_order": "color_object",
-      "adam_phrase_ids": "[3769, 3996]",
-      "eve_phrase_ids": "[3769, 3996]",
-      "shared_phrase_ids": "[3769, 3996]",
-      "converged_step": 39
+      "adam_phrase_ids": "[8888, 4316]",
+      "eve_phrase_ids": "[8888, 4316]",
+      "shared_phrase_ids": "[8888, 4316]",
+      "converged_step": 127
     },
     {
       "object_type": "mushroom",
@@ -233,10 +232,10 @@
       "concept_label": "Yellow Mushroom",
       "was_trained": true,
       "syntax_order": "color_object",
-      "adam_phrase_ids": "[3769, 6837]",
-      "eve_phrase_ids": "[3769, 6837]",
-      "shared_phrase_ids": "[3769, 6837]",
-      "converged_step": 39
+      "adam_phrase_ids": "[8888, 4500]",
+      "eve_phrase_ids": "[8888, 4500]",
+      "shared_phrase_ids": "[8888, 4500]",
+      "converged_step": 127
     },
     {
       "object_type": "apple",
@@ -245,10 +244,10 @@
       "concept_label": "Green Apple",
       "was_trained": true,
       "syntax_order": "color_object",
-      "adam_phrase_ids": "[7619, 3996]",
-      "eve_phrase_ids": "[7619, 3996]",
-      "shared_phrase_ids": "[7619, 3996]",
-      "converged_step": 39
+      "adam_phrase_ids": "[5706, 4316]",
+      "eve_phrase_ids": "[5706, 4316]",
+      "shared_phrase_ids": "[5706, 4316]",
+      "converged_step": 127
     },
     {
       "object_type": "mushroom",
@@ -257,10 +256,10 @@
       "concept_label": "Green Mushroom",
       "was_trained": true,
       "syntax_order": "color_object",
-      "adam_phrase_ids": "[7619, 6837]",
-      "eve_phrase_ids": "[7619, 6837]",
-      "shared_phrase_ids": "[7619, 6837]",
-      "converged_step": 39
+      "adam_phrase_ids": "[5706, 4500]",
+      "eve_phrase_ids": "[5706, 4500]",
+      "shared_phrase_ids": "[5706, 4500]",
+      "converged_step": 127
     },
     {
       "object_type": "apple",
@@ -269,10 +268,10 @@
       "concept_label": "Blue Apple",
       "was_trained": true,
       "syntax_order": "color_object",
-      "adam_phrase_ids": "[4759, 3996]",
-      "eve_phrase_ids": "[4759, 3996]",
-      "shared_phrase_ids": "[4759, 3996]",
-      "converged_step": 39
+      "adam_phrase_ids": "[4136, 4316]",
+      "eve_phrase_ids": "[4136, 4316]",
+      "shared_phrase_ids": "[4136, 4316]",
+      "converged_step": 127
     },
     {
       "object_type": "mushroom",
@@ -281,10 +280,10 @@
       "concept_label": "Blue Mushroom",
       "was_trained": true,
       "syntax_order": "color_object",
-      "adam_phrase_ids": "[4759, 6837]",
-      "eve_phrase_ids": "[4759, 6837]",
-      "shared_phrase_ids": "[4759, 6837]",
-      "converged_step": 39
+      "adam_phrase_ids": "[4136, 4500]",
+      "eve_phrase_ids": "[4136, 4500]",
+      "shared_phrase_ids": "[4136, 4500]",
+      "converged_step": 127
     },
     {
       "object_type": "apple",
@@ -293,10 +292,10 @@
       "concept_label": "Indigo Apple",
       "was_trained": true,
       "syntax_order": "color_object",
-      "adam_phrase_ids": "[8426, 3996]",
-      "eve_phrase_ids": "[8426, 3996]",
-      "shared_phrase_ids": "[8426, 3996]",
-      "converged_step": 39
+      "adam_phrase_ids": "[5782, 4316]",
+      "eve_phrase_ids": "[5782, 4316]",
+      "shared_phrase_ids": "[5782, 4316]",
+      "converged_step": 127
     },
     {
       "object_type": "mushroom",
@@ -305,10 +304,10 @@
       "concept_label": "Indigo Mushroom",
       "was_trained": true,
       "syntax_order": "color_object",
-      "adam_phrase_ids": "[8426, 6837]",
-      "eve_phrase_ids": "[8426, 6837]",
-      "shared_phrase_ids": "[8426, 6837]",
-      "converged_step": 39
+      "adam_phrase_ids": "[5782, 4500]",
+      "eve_phrase_ids": "[5782, 4500]",
+      "shared_phrase_ids": "[5782, 4500]",
+      "converged_step": 127
     },
     {
       "object_type": "apple",
@@ -317,10 +316,10 @@
       "concept_label": "Violet Apple",
       "was_trained": true,
       "syntax_order": "color_object",
-      "adam_phrase_ids": "[7129, 3996]",
-      "eve_phrase_ids": "[7129, 3996]",
-      "shared_phrase_ids": "[7129, 3996]",
-      "converged_step": 39
+      "adam_phrase_ids": "[4786, 4316]",
+      "eve_phrase_ids": "[4786, 4316]",
+      "shared_phrase_ids": "[4786, 4316]",
+      "converged_step": 127
     },
     {
       "object_type": "mushroom",
@@ -329,10 +328,10 @@
       "concept_label": "Violet Mushroom",
       "was_trained": true,
       "syntax_order": "color_object",
-      "adam_phrase_ids": "[7129, 6837]",
-      "eve_phrase_ids": "[7129, 6837]",
-      "shared_phrase_ids": "[7129, 6837]",
-      "converged_step": 39
+      "adam_phrase_ids": "[4786, 4500]",
+      "eve_phrase_ids": "[4786, 4500]",
+      "shared_phrase_ids": "[4786, 4500]",
+      "converged_step": 127
     }
   ],
   "lexicon": [
@@ -343,10 +342,10 @@
       "concept_label": "Red Apple",
       "was_trained": true,
       "syntax_order": "color_object",
-      "adam_phrase_ids": "[4789, 3996]",
-      "eve_phrase_ids": "[4789, 3996]",
-      "shared_phrase_ids": "[4789, 3996]",
-      "converged_step": 39
+      "adam_phrase_ids": "[7105, 4316]",
+      "eve_phrase_ids": "[7105, 4316]",
+      "shared_phrase_ids": "[7105, 4316]",
+      "converged_step": 127
     },
     {
       "object_type": "mushroom",
@@ -355,10 +354,10 @@
       "concept_label": "Red Mushroom",
       "was_trained": true,
       "syntax_order": "color_object",
-      "adam_phrase_ids": "[4789, 6837]",
-      "eve_phrase_ids": "[4789, 6837]",
-      "shared_phrase_ids": "[4789, 6837]",
-      "converged_step": 39
+      "adam_phrase_ids": "[7105, 4500]",
+      "eve_phrase_ids": "[7105, 4500]",
+      "shared_phrase_ids": "[7105, 4500]",
+      "converged_step": 127
     },
     {
       "object_type": "apple",
@@ -367,22 +366,22 @@
       "concept_label": "Orange Apple",
       "was_trained": true,
       "syntax_order": "color_object",
-      "adam_phrase_ids": "[2713, 3996]",
-      "eve_phrase_ids": "[2713, 3996]",
-      "shared_phrase_ids": "[2713, 3996]",
-      "converged_step": 39
+      "adam_phrase_ids": "[2056, 4316]",
+      "eve_phrase_ids": "[2056, 4316]",
+      "shared_phrase_ids": "[2056, 4316]",
+      "converged_step": 127
     },
     {
       "object_type": "mushroom",
       "color_name": "orange",
       "concept": "orange_mushroom",
       "concept_label": "Orange Mushroom",
-      "was_trained": false,
+      "was_trained": true,
       "syntax_order": "color_object",
-      "adam_phrase_ids": "[2713, 6837]",
-      "eve_phrase_ids": "[2713, 6837]",
-      "shared_phrase_ids": "[2713, 6837]",
-      "converged_step": 39
+      "adam_phrase_ids": "[2056, 4500]",
+      "eve_phrase_ids": "[2056, 4500]",
+      "shared_phrase_ids": "[2056, 4500]",
+      "converged_step": 127
     },
     {
       "object_type": "apple",
@@ -391,10 +390,10 @@
       "concept_label": "Yellow Apple",
       "was_trained": true,
       "syntax_order": "color_object",
-      "adam_phrase_ids": "[3769, 3996]",
-      "eve_phrase_ids": "[3769, 3996]",
-      "shared_phrase_ids": "[3769, 3996]",
-      "converged_step": 39
+      "adam_phrase_ids": "[8888, 4316]",
+      "eve_phrase_ids": "[8888, 4316]",
+      "shared_phrase_ids": "[8888, 4316]",
+      "converged_step": 127
     },
     {
       "object_type": "mushroom",
@@ -403,10 +402,10 @@
       "concept_label": "Yellow Mushroom",
       "was_trained": true,
       "syntax_order": "color_object",
-      "adam_phrase_ids": "[3769, 6837]",
-      "eve_phrase_ids": "[3769, 6837]",
-      "shared_phrase_ids": "[3769, 6837]",
-      "converged_step": 39
+      "adam_phrase_ids": "[8888, 4500]",
+      "eve_phrase_ids": "[8888, 4500]",
+      "shared_phrase_ids": "[8888, 4500]",
+      "converged_step": 127
     },
     {
       "object_type": "apple",
@@ -415,10 +414,10 @@
       "concept_label": "Green Apple",
       "was_trained": true,
       "syntax_order": "color_object",
-      "adam_phrase_ids": "[7619, 3996]",
-      "eve_phrase_ids": "[7619, 3996]",
-      "shared_phrase_ids": "[7619, 3996]",
-      "converged_step": 39
+      "adam_phrase_ids": "[5706, 4316]",
+      "eve_phrase_ids": "[5706, 4316]",
+      "shared_phrase_ids": "[5706, 4316]",
+      "converged_step": 127
     },
     {
       "object_type": "mushroom",
@@ -427,10 +426,10 @@
       "concept_label": "Green Mushroom",
       "was_trained": true,
       "syntax_order": "color_object",
-      "adam_phrase_ids": "[7619, 6837]",
-      "eve_phrase_ids": "[7619, 6837]",
-      "shared_phrase_ids": "[7619, 6837]",
-      "converged_step": 39
+      "adam_phrase_ids": "[5706, 4500]",
+      "eve_phrase_ids": "[5706, 4500]",
+      "shared_phrase_ids": "[5706, 4500]",
+      "converged_step": 127
     },
     {
       "object_type": "apple",
@@ -439,10 +438,10 @@
       "concept_label": "Blue Apple",
       "was_trained": true,
       "syntax_order": "color_object",
-      "adam_phrase_ids": "[4759, 3996]",
-      "eve_phrase_ids": "[4759, 3996]",
-      "shared_phrase_ids": "[4759, 3996]",
-      "converged_step": 39
+      "adam_phrase_ids": "[4136, 4316]",
+      "eve_phrase_ids": "[4136, 4316]",
+      "shared_phrase_ids": "[4136, 4316]",
+      "converged_step": 127
     },
     {
       "object_type": "mushroom",
@@ -451,10 +450,10 @@
       "concept_label": "Blue Mushroom",
       "was_trained": true,
       "syntax_order": "color_object",
-      "adam_phrase_ids": "[4759, 6837]",
-      "eve_phrase_ids": "[4759, 6837]",
-      "shared_phrase_ids": "[4759, 6837]",
-      "converged_step": 39
+      "adam_phrase_ids": "[4136, 4500]",
+      "eve_phrase_ids": "[4136, 4500]",
+      "shared_phrase_ids": "[4136, 4500]",
+      "converged_step": 127
     },
     {
       "object_type": "apple",
@@ -463,10 +462,10 @@
       "concept_label": "Indigo Apple",
       "was_trained": true,
       "syntax_order": "color_object",
-      "adam_phrase_ids": "[8426, 3996]",
-      "eve_phrase_ids": "[8426, 3996]",
-      "shared_phrase_ids": "[8426, 3996]",
-      "converged_step": 39
+      "adam_phrase_ids": "[5782, 4316]",
+      "eve_phrase_ids": "[5782, 4316]",
+      "shared_phrase_ids": "[5782, 4316]",
+      "converged_step": 127
     },
     {
       "object_type": "mushroom",
@@ -475,10 +474,10 @@
       "concept_label": "Indigo Mushroom",
       "was_trained": true,
       "syntax_order": "color_object",
-      "adam_phrase_ids": "[8426, 6837]",
-      "eve_phrase_ids": "[8426, 6837]",
-      "shared_phrase_ids": "[8426, 6837]",
-      "converged_step": 39
+      "adam_phrase_ids": "[5782, 4500]",
+      "eve_phrase_ids": "[5782, 4500]",
+      "shared_phrase_ids": "[5782, 4500]",
+      "converged_step": 127
     },
     {
       "object_type": "apple",
@@ -487,10 +486,10 @@
       "concept_label": "Violet Apple",
       "was_trained": true,
       "syntax_order": "color_object",
-      "adam_phrase_ids": "[7129, 3996]",
-      "eve_phrase_ids": "[7129, 3996]",
-      "shared_phrase_ids": "[7129, 3996]",
-      "converged_step": 39
+      "adam_phrase_ids": "[4786, 4316]",
+      "eve_phrase_ids": "[4786, 4316]",
+      "shared_phrase_ids": "[4786, 4316]",
+      "converged_step": 127
     },
     {
       "object_type": "mushroom",
@@ -499,10 +498,10 @@
       "concept_label": "Violet Mushroom",
       "was_trained": true,
       "syntax_order": "color_object",
-      "adam_phrase_ids": "[7129, 6837]",
-      "eve_phrase_ids": "[7129, 6837]",
-      "shared_phrase_ids": "[7129, 6837]",
-      "converged_step": 39
+      "adam_phrase_ids": "[4786, 4500]",
+      "eve_phrase_ids": "[4786, 4500]",
+      "shared_phrase_ids": "[4786, 4500]",
+      "converged_step": 127
     }
   ],
   "objects": {}
